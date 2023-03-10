@@ -7,28 +7,103 @@ from mpl_point_clicker import clicker
 # %% ATI CLASS
 
 class AboveThresholdIonization:
-    def __init__(self, omega0: float, intensity: float, Ip: float, vec_pot: callable) -> None:
+    def __init__(self, Ip: float) -> None:
         """
         Very descriptive description
-        :param omega0: Laser carrier frequency
-        :param intensity: Laser intensity in W/cm²
         :param Ip: The ionization potential in a.u.
-        :param vec_pot: The laser vector potential in a.u.
         """
-        self.omega0 = omega0
-        self.intensity = intensity
         self.Ip = Ip
-        self.vec_pot = vec_pot
+        self.set_field_params(lambd=800, intensity=1e14, cep=0, N_cycles=2)  # Set the standard field values
+        self.set_fields(build_in_field='sin2')  # Set the standard field type
+
+    def load_settings(self):
+        """ Function to load in settings from a settings-dictionary and call the different setter functions """
+        pass
+
+    def set_field_params(self, lambd, intensity, cep, N_cycles):
+        """
+        Function to set field parameters used for the standard build-in fields. If own field is provided, this is not
+        needed.
+        :param lambd: Laser carrier wavelength in nm
+        :param intensity: Laser intensity in W/cm²
+        :param cep: Carrier envelope phase
+        :param N_cycles: Number of cycles
+        """
+        self.cep = cep
+        self.N_cycles = N_cycles
+
+        # Calculate omega and Up. Do the conversion to a.u.
+        E_max = np.sqrt(intensity / 3.50945e16)  # Max electric field amplitude (a.u.)
+        self.omega = 2. * np.pi * 137.036 / (lambd * 1.e-9 / 5.29177e-11)
+        self.Up = E_max**2 / (4 * self.omega**2)
+        self.rtUp = np.sqrt(self.Up)
+
+    def set_fields(self, build_in_field='', custom_A_field=None, custom_E_field=None):
+        """
+        Function to set the field type used in calculations. Allows for custom fields. Note, if custom fields is used
+        then both E and A field must be given.
+        :param build_in_field: String choosing the type of in-built field. Leave '' if custom field is used.
+        :param custom_A_field: Custom A-field. Must have form A_field(t), with t being time in a.u.
+        :param custom_E_field: Custom E-field. Must have form E_field(t), with t being time in a.u.
+        """
+        if build_in_field:
+            if build_in_field == 'sin2':
+                self.A_field = self.A_field_sin2
+                self.E_field = self.E_field_sin2
+
+                # More build-in fields can be added here:
+
+        elif custom_A_field is not None:
+            self.A_field = custom_A_field
+            self.E_field = custom_E_field
+        else:
+            print("Attempt at setting field type without anything provided! Don't panic! Using standard sin2 field.")
+
+    def set_momentum_grid(self):
+        pass
+
+    def A_field_sin2(self, t):
+        """
+        Sin^2 field. One possible choice of 'build in' pulse forms. Uses the field parameters of the class.
+        :param t: Time (a.u.)
+        """
+        return np.array([0, 0, 2 * self.rtUp * np.sin(self.omega * t / (2*self.N_cycles))**2 * np.cos(self.omega * t + self.cep)])
+
+    def E_field_sin2(self, t):
+        pass
+
+    def action_derivative(self, p_vec, ts):
+        val = p_vec + self.A_field(ts)
+        return (val[0]**2 + val[1]**2 + val[2]**2) + 2 * self.Ip  #np.linalg.norm(p_vec + self.A_field(ts))**2 + 2 * self.Ip
+
+    def get_saddle_guess(self, tr_lims, ti_lims, Nr, Ni):
+        p0 = np.array([0.5, 0., 0.5])
+        tr_list = np.linspace(tr_lims[0], tr_lims[1], Nr)
+        ti_list = np.linspace(ti_lims[0], ti_lims[1], Ni)
+        res_grid = np.zeros((len(ti_list), len(tr_list)), dtype=complex)
+
+        # Should try to do this with numpy array magic
+        for i, ti in enumerate(ti_list):
+            for j, tr in enumerate(tr_list):
+                res_grid[i,j] = self.action_derivative(p0, tr + 1j*ti)
+
+        res_grid = np.log10(np.abs(res_grid) ** 2)
+        fig, ax = plt.subplots()
+        ax.imshow(np.flip(res_grid, 0), cmap='twilight', interpolation='bicubic', aspect='auto',
+                   extent=(tr_lims[0], tr_lims[1], ti_lims[0], ti_lims[1]))
+        klicker = clicker(ax, ["Saddle Points"], markers=["o"])
+        plt.show()
+
+        guess_sp = klicker.get_positions()['Saddle Points']
+        return guess_sp[:,0] + 1j * guess_sp[:,1]
+
 
     def get_saddle_times(self, n_cycles: int) -> list[complex]:
         times = []
-
-
         return [2 + 1j]
 
 
-
-
-def vector_potential(t: float, omega: float, Up: float):
-    return 2 * np.sqrt(Up) * np.cos(omega * t)
+settings_dict = {}  # This could be a very nice feature
+ATI = AboveThresholdIonization(Ip=0.5)
+SP_guess = ATI.get_saddle_guess((0., 2*np.pi * ATI.N_cycles/ATI.omega), (0., 80), 400, 400)
 
