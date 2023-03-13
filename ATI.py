@@ -6,6 +6,7 @@ from mpl_point_clicker import clicker
 from scipy.optimize import root
 from matplotlib.colors import LogNorm
 from scipy.integrate import quad
+from multiprocessing import Pool
 
 # %% ATI CLASS
 
@@ -15,20 +16,22 @@ class AboveThresholdIonization:
         Very descriptive description
         :param Ip: The ionization potential in a.u.
         """
-
         if settings_dict is None:  # No settings dictionary - use the standard values
             self.Ip = 0.5
             self.set_field_params(lambd=800, intensity=1e14, cep=np.pi/2, N_cycles=2)
             self.set_fields(build_in_field='sin2')  # Set the standard field type
-            self.set_momentum_bounds(px_start=-0.75, px_end=0.75, py_start=0., py_end=0.8, pz=0., Nx=200, Ny=100)
+            self.set_momentum_bounds(px_start=-1.5, px_end=1.5, py_start=0., py_end=1.5, pz=0., Nx=200, Ny=100)
+            self.N_cores = 4
         else:
             self.Ip = settings_dict['Ip']
-            self.set_field_params(lambd=settings_dict['wavelength'], intensity=settings_dict['intensity'],
+            self.set_field_params(lambd=settings_dict['Wavelength'], intensity=settings_dict['Intensity'],
                                   cep=settings_dict['cep'], N_cycles=settings_dict['N_cycles'])
             self.set_fields(build_in_field='sin2') #TODO: use custom field if neccesary
             self.set_momentum_bounds(px_start=settings_dict['px_start'], px_end=settings_dict['px_end'],
                                      py_start=settings_dict['py_start'], py_end=settings_dict['py_end'],
                                      pz=settings_dict['pz'], Nx=settings_dict['Nx'], Ny=settings_dict['Ny'])
+
+            self.N_cores = settings_dict['N_cores']
 
         self.guess_saddle_points = np.array([])  # List to be filled with initial values for saddle point times
 
@@ -67,12 +70,14 @@ class AboveThresholdIonization:
                 self.E_field = self.E_field_sin2
 
                 # More build-in fields can be added here:
+            else:
+                raise Exception('The build-in field specified does not exist!')
 
         elif custom_A_field is not None:
             self.A_field = custom_A_field
             self.E_field = custom_E_field
         else:
-            print("Attempt at setting field type without anything provided! Don't panic! Using standard sin2 field.")
+            raise Exception("Attempt at setting field type without anything provided!")
 
     def set_momentum_bounds(self, px_start, px_end, py_start, py_end, pz, Nx, Ny):
         """
@@ -98,6 +103,9 @@ class AboveThresholdIonization:
         return np.array([2 * self.rtUp * np.sin(self.omega * t / (2*self.N_cycles))**2 * np.cos(self.omega * t + self.cep), 0, 0])
 
     def E_field_sin2(self, t):
+        """
+        Electric field for the sin2 field.
+        """
         term1 = 2*np.sqrt(self.Up) * np.sin(self.omega*t/(2*self.N_cycles))**2 * np.sin(self.omega*t + self.cep)
         term2 = -np.sqrt(self.Up)/self.N_cycles * np.sin(self.omega*t/self.N_cycles) * np.cos(self.omega*t + self.cep)
         return np.array([self.omega * (term1 + term2), 0, 0])
@@ -111,7 +119,7 @@ class AboveThresholdIonization:
             return -s.rtUp * (2*np.cos(s.cep) * t*s.omega + 3*np.sin(s.cep) - 4*np.sin(s.omega*t + s.cep) +
                         np.sin(2*s.omega*t + s.cep))/(4*s.omega)
         else:
-            return s.rtUp/(2*s.omega*(s.N_cycles**2-1)) * (s.N_cycles*(s.N_cycles+1)*np.sin((s.omega*t*(s.N_cycles-1) + s.cep*s.N_cycles)/s.N_cycles)
+            return -s.rtUp/(2*s.omega*(s.N_cycles**2-1)) * (s.N_cycles*(s.N_cycles+1)*np.sin((s.omega*t*(s.N_cycles-1) + s.cep*s.N_cycles)/s.N_cycles)
                                         + s.N_cycles*(s.N_cycles-1)*np.sin((s.omega*t*(s.N_cycles+1) + s.cep*s.N_cycles)/s.N_cycles)
                                         - 2*s.N_cycles**2*np.sin(s.omega*t+s.cep) - 2*np.sin(s.cep) + 2*np.sin(s.omega*t+s.cep))
 
@@ -134,14 +142,19 @@ class AboveThresholdIonization:
             rest_terms =s.N_cycles**4*s.omega*t - 5*s.N_cycles**2*s.omega*t/4 + s.omega*t/4 - np.sin(s.cep)*np.cos(s.cep)/4
             return fac * (term1 + term2 + term3 + term4 + term5 + rest_terms)
 
-    def action(self, t, p_vec):
+    def A_integrals(self, t, p_vec):
         """
-        Calculation of the SFA action
+        Calculation of the vector potential integrals needed in the action. Redirects for analytical calculation or
+        performs the numerical integration directly.
         :param t: time
         :param p_vec: momentum vector
         """
-        p2 = p_vec[0]**2 + p_vec[1]**2 + p_vec[2]**2
-        return (self.Ip + p2) * t + self.A_integrals(t, p_vec)
+        if self.build_in:
+            return self.analytic_A_integrals(t, p_vec)
+
+        # This is if no analytical expression for the vector field integrals are known - quite a bit slower!
+        t_list = np.linspace(0, t, 100)
+        return np.trapz([2*np.dot(p_vec, self.A_field(t)) + np.sum(self.A_field(t)**2) for t in t_list], t_list)
 
     def analytic_A_integrals(self, t, p_vec):
         """
@@ -155,18 +168,14 @@ class AboveThresholdIonization:
         else:
             raise Exception("Analytical integrals for this field type does not exist!")
 
-    def A_integrals(self, t, p_vec):
+    def action(self, t, p_vec):
         """
-        Calculation of the vector potential integrals needed in the action. Redirects for analytical calculation or
-        performs the numerical integration directly.
+        Calculation of the SFA action
         :param t: time
         :param p_vec: momentum vector
         """
-        if self.build_in:
-            return self.analytic_A_integrals(t, p_vec)
-        t_end = self.N_cycles * 2*np.pi / self.omega
-        t_list = np.linspace(t, t_end, 1000)
-        return np.trapz([2*np.dot(p_vec, self.A_field(t)) + np.sqrt(np.sum(self.A_field(t)**2)) for t in t_list], t_list)
+        p2 = p_vec[0]**2 + p_vec[1]**2 + p_vec[2]**2
+        return (self.Ip + p2) * t + self.A_integrals(t, p_vec)
 
     def action_derivative(self, p_vec, ts):
         """
@@ -179,6 +188,9 @@ class AboveThresholdIonization:
         return 0.5 * (val[0]**2 + val[1]**2 + val[2]**2) + self.Ip  #np.linalg.norm(p_vec + self.A_field(ts))**2 + 2 * self.Ip
 
     def action_derivative_real_imag(self, ts_list, p_vec):
+        """
+        Simple wrapper function used to make scipy's root finder happy.
+        """
         val = self.action_derivative(p_vec, ts_list[0] + 1j*ts_list[1])
         return [val.real, val.imag]
 
@@ -243,7 +255,6 @@ class AboveThresholdIonization:
         p_vec = np.array(p_vec)  # Just to be sure...
         amplitude = 0
         if saddle_times is not None:
-            #print(saddle_times)
             # Use the saddle-point approximation
             for ts in saddle_times:
                 action_double_derivative = np.dot(-(p_vec + self.A_field(ts)), self.E_field(ts))
@@ -256,15 +267,16 @@ class AboveThresholdIonization:
             amplitude = quad(lambda t: np.exp(-1j*self.action(t_list, p_vec)), 0, t_end)  # np.trapz(np.exp(-1j*self.action(t_list, p_vec)), t_list)
             return amplitude
 
-    def calculate_pmd_py_slice(self, saddle_times_start, px_list, py):
+    def calculate_pmd_py_slice_SPA(self, saddle_times_start, py):
         """
-        Calculates the pmd for all px values at a given py value. This is done to propagate the saddle time solution
-        through the momentum grid properly.
+        Calculates the pmd for all px values at a given py value using the saddle point approximation.
+        Done in this way to propagate the saddle time solutions through the momentum grid properly.
         """
         p_vec = np.array([0., py, self.pz])
         pmd_slice = []
         guess_points = saddle_times_start
-        for i, px in enumerate(px_list):
+
+        for i, px in enumerate(self.px_list):
             p_vec[0] = px
 
             # Obtain the saddle times if not the first px value (here they are already found)
@@ -280,12 +292,13 @@ class AboveThresholdIonization:
 
         return pmd_slice
 
-    def calculate_pmd(self):
+    def calculate_pmd_SPA(self):
         """
-        Function to calculate the photoelectron momentum distribution for the set momentum grid over px,py.
+        Function to calculate the photoelectron momentum distribution using the saddle point approximation (SPA)
+        for the momentum grid over px, py.
         """
-        pmd = []
-        px_list = np.linspace(self.px_start, self.px_end, self.Nx)
+
+        self.px_list = np.linspace(self.px_start, self.px_end, self.Nx)
         py_list = np.linspace(self.py_start, self.py_end, self.Ny)
 
         # Check the initial guess have been found by user - else make them find them!
@@ -295,7 +308,7 @@ class AboveThresholdIonization:
         # Get the saddle points along the left px edge
         guess_points = self.guess_saddle_points
         edge_list = []
-        p_vec = np.array([px_list[0], 0., self.pz])
+        p_vec = np.array([self.px_start, 0., self.pz])
         for py_i in py_list:
             p_vec[1] = py_i
             exact_points = self.find_saddle_times(guess_points, p_vec)
@@ -303,23 +316,48 @@ class AboveThresholdIonization:
             guess_points = exact_points
 
         # Now loop over all the py-'slices' and calculate transition amplitude for each, finding saddle times for each
-        # (This should be done in parallel! And is thus made into its own function for ease of parallelization)
-        for (edge_times_i, py) in zip(edge_list, py_list):
-            pmd.append(self.calculate_pmd_py_slice(edge_times_i, px_list, py))
-
+        # Done using multiprocessing starmap to speed up calculations a bit
+        iter_param_list = [(edge_times_i, py_i) for edge_times_i, py_i in zip(edge_list,py_list)]
+        with Pool(processes=4) as pool:
+            pmd = pool.starmap(self.calculate_pmd_py_slice_SPA, iter_param_list)
         return np.array(pmd)
 
-settings_dict = {}  # This could be a very nice feature
-ATI = AboveThresholdIonization()
 
-print(ATI.px_start, ATI.px_end)
+settings_dict = {
+    'Ip': 0.5,              # Ionization potential (a.u.)
+    'Wavelength': 800,      # (nm)
+    'Intensity': 1e14,      # (W/cm^2)
+    'cep': np.pi/2,         # Carrier envelope phase
+    'N_cycles': 2,          # Nr of cycles
+    'build_in_field': 'sin2',   # Build in field type to use. If using other field methods leave as a empty string ''.
+    'px_start': -1.5, 'px_end': 1.5,  # Momentum bounds in x direction (a.u.)
+    'py_start': 0., 'py_end': 1.5,    # Momentum bounds in y direction (a.u.)
+    'pz': 0.,               # Momentum in z direction (a.u.)
+    'Nx': 200, 'Ny': 100,   # Grid resolution in the x and y direction
+    'N_cores': 4,           # Nr. of cores to use in the multiprocessing calculations
+}
 
-ATI.get_saddle_guess([0, ATI.N_cycles * 2*np.pi/ATI.omega], [0, 80], 400, 400)
-PMD = ATI.calculate_pmd()
-M = np.abs(PMD)**2
-plt.imshow(np.flip(M,0), norm=LogNorm(vmax=np.max(M), vmin=np.max(M)*1e-8), aspect='auto', extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
+if __name__ == "__main__":
+    ATI = AboveThresholdIonization(settings_dict=settings_dict)
 
-plt.colorbar()
+    ATI.get_saddle_guess([0, ATI.N_cycles * 2*np.pi/ATI.omega], [0, 80], 400, 400)
+    PMD = ATI.calculate_pmd_SPA()
+    M = np.abs(PMD)**2
+    plt.imshow(np.flip(M,0), norm=LogNorm(vmax=np.max(M), vmin=np.max(M)*1e-8), aspect='equal', extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
+    plt.colorbar()
 
+    plt.show()
+
+
+"""
+# Test integrals of A
+t_list = np.linspace(0, ATI.N_cycles * 2*np.pi/ATI.omega, 100)
+A_num_list = []
+for ti in t_list:
+    trapz_list = np.linspace(0, ti, 100)
+    A_num_list.append(np.trapz(ATI.A_field(trapz_list), trapz_list))
+
+plt.plot(t_list, ATI.AI_sin2(t_list))
+plt.plot(t_list, np.array(A_num_list))
 plt.show()
-
+"""
