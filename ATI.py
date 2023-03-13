@@ -4,22 +4,31 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_point_clicker import clicker
 from scipy.optimize import root
+from matplotlib.colors import LogNorm
+from scipy.integrate import quad
 
 # %% ATI CLASS
 
 class AboveThresholdIonization:
-    def __init__(self, settings_dict=None) -> None:
+    def __init__(self, settings_dict=None):
         """
         Very descriptive description
         :param Ip: The ionization potential in a.u.
         """
+
         if settings_dict is None:  # No settings dictionary - use the standard values
             self.Ip = 0.5
             self.set_field_params(lambd=800, intensity=1e14, cep=0, N_cycles=2)
             self.set_fields(build_in_field='sin2')  # Set the standard field type
             self.set_momentum_bounds(px_start=-2., px_end=2., py_start=-2., py_end=2., pz=0., Nx=100, Ny=100)
         else:
-            pass  # Same as above but with the settings_dict values!
+            self.Ip = settings_dict['Ip']
+            self.set_field_params(lambd=settings_dict['wavelength'], intensity=settings_dict['intensity'],
+                                  cep=settings_dict['cep'], N_cycles=settings_dict['N_cycles'])
+            self.set_fields(build_in_field='sin2') #TODO: use custom field if neccesary
+            self.set_momentum_bounds(px_start=settings_dict['px_start'], px_end=settings_dict['px_end'],
+                                     py_start=settings_dict['py_start'], py_end=settings_dict['py_end'],
+                                     pz=settings_dict['pz'], Nx=settings_dict['Nx'], Ny=settings_dict['Ny'])
 
         self.guess_saddle_points = []  # List to be filled with initial values for saddle point times
 
@@ -86,7 +95,9 @@ class AboveThresholdIonization:
         return np.array([0, 0, 2 * self.rtUp * np.sin(self.omega * t / (2*self.N_cycles))**2 * np.cos(self.omega * t + self.cep)])
 
     def E_field_sin2(self, t):
-        pass
+        term1 = 2*np.sqrt(self.Up) * np.sin(self.omega*t/(2*self.N_cycles))**2 * np.sin(self.omega*t + self.cep)
+        term2 = -np.sqrt(self.Up)/self.N_cycles * np.sin(self.omega*t/self.N_cycles) * np.cos(self.omega*t + self.cep)
+        return np.array([0, 0, self.omega * (term1 + term2)])
 
     def action_derivative(self, p_vec, ts):
         val = p_vec + self.A_field(ts)
@@ -133,19 +144,41 @@ class AboveThresholdIonization:
         root_list = []
         for guess_time in guess_times:
             guess_i = np.array([guess_time.real, guess_time.imag])
-            sol = root(self.action_derivative_real_imag, guess_i, args=(p_vec))
+            sol = root(self.action_derivative_real_imag, guess_i, args=(p_vec,))
+            tr = sol.x[0]
+            ti = sol.x[1]
 
-            # TODO Restrict solution to lie within the pulse
+            # Restrict real part within first period
+            if tr > self.period:
+                tr -= self.period
 
-            root_list.append(sol.x[0] + 1j*sol.x[1])
+            root_list.append(tr + 1j*ti)
         return root_list
 
-    def calculate_transition_amplitude(self):
+    def calculate_transition_amplitude(self, p_vec, saddle_times=None):
         """
         Function to calculate the transition amplitude in a given momentum point, given the saddle point times.
+        :param saddle_times: list of complex saddle point times
+        :param p_vec: the final momentum 3-vector
+        :return: the transition amplitude M(p) for a given momentum p
         """
-        # TODO implement this
-        pass
+        #TODO: prefactors? Hell nah.
+
+        p_vec = np.array(p_vec)  # Just to be sure...
+        amplitude = 0
+        if saddle_times is not None:
+            print(saddle_times)
+            # Use the saddle-point approximation
+            for ts in saddle_times:
+                action_double_derivative = np.sum(-(p_vec + self.A_field(ts)) * self.E_field(ts))
+                amplitude += np.sqrt(2*np.pi*1j/action_double_derivative + 1e-10) * np.exp(-1j * self.action(ts, p_vec))
+            return amplitude
+        else:
+            # Numerical integration of the time integral
+            t_end = self.N_cycles * 2*np.pi / self.omega
+            t_list = np.linspace(0, t_end, int(1e4)*self.N_cycles)
+            amplitude = quad(lambda t: np.exp(-1j*self.action(t_list, p_vec)), 0, t_end)  # np.trapz(np.exp(-1j*self.action(t_list, p_vec)), t_list)
+            return amplitude
 
     def calculate_pmd_py_slice(self, saddle_times_start, px_list, py):
         """
@@ -166,7 +199,7 @@ class AboveThresholdIonization:
                 saddle_points = guess_points
 
             # Calculate the transition amplitude for the momentum point
-            trans_amp = self.calculate_transition_amplitude()
+            trans_amp = self.calculate_transition_amplitude(p_vec, saddle_times=saddle_points)
             pmd_slice.append(trans_amp)
 
         return pmd_slice
@@ -180,9 +213,8 @@ class AboveThresholdIonization:
         py_list = np.linspace(self.py_start, self.py_end, self.Ny)
 
         # Check the initial guess have been found by user - else make them find them!
-        if not self.guess_saddle_points:
-            # TODO throw some error here
-            print("I don't know what you are doing, and at this point I am too afraid to ask.")
+        if not np.any(self.guess_saddle_points):
+            raise Exception("I don't know what you are doing, and at this point I am too afraid to ask.")
 
         # Get the saddle points along the left px edge
         guess_points = self.guess_saddle_points
@@ -207,3 +239,10 @@ ATI = AboveThresholdIonization()
 #print(SP_guess)
 #root_list = ATI.find_saddle_times(SP_guess, np.array([0.5, 0., 0.5]))
 #print(root_list)
+ATI.get_saddle_guess([0, ATI.N_cycles * 2*np.pi/ATI.omega], [0, 80], 400, 400)
+PMD = ATI.calculate_pmd()
+M = np.abs(PMD)**2
+plt.imshow(M, norm=LogNorm(vmax=np.max(M), vmin=np.max(M)*1e-4))
+plt.colorbar()
+
+plt.show()
