@@ -18,9 +18,9 @@ class AboveThresholdIonization:
 
         if settings_dict is None:  # No settings dictionary - use the standard values
             self.Ip = 0.5
-            self.set_field_params(lambd=800, intensity=1e14, cep=0, N_cycles=2)
+            self.set_field_params(lambd=800, intensity=1e14, cep=np.pi/2, N_cycles=2)
             self.set_fields(build_in_field='sin2')  # Set the standard field type
-            self.set_momentum_bounds(px_start=-2., px_end=2., py_start=-2., py_end=2., pz=0., Nx=100, Ny=100)
+            self.set_momentum_bounds(px_start=-0.75, px_end=0.75, py_start=0., py_end=0.8, pz=0., Nx=200, Ny=100)
         else:
             self.Ip = settings_dict['Ip']
             self.set_field_params(lambd=settings_dict['wavelength'], intensity=settings_dict['intensity'],
@@ -100,7 +100,7 @@ class AboveThresholdIonization:
     def E_field_sin2(self, t):
         term1 = 2*np.sqrt(self.Up) * np.sin(self.omega*t/(2*self.N_cycles))**2 * np.sin(self.omega*t + self.cep)
         term2 = -np.sqrt(self.Up)/self.N_cycles * np.sin(self.omega*t/self.N_cycles) * np.cos(self.omega*t + self.cep)
-        return np.array([0, 0, self.omega * (term1 + term2)])
+        return np.array([self.omega * (term1 + term2), 0, 0])
 
     def AI_sin2(s, t):
         """
@@ -162,8 +162,8 @@ class AboveThresholdIonization:
         :param t: time
         :param p_vec: momentum vector
         """
-        #if self.build_in:
-        #    return self.analytic_A_integrals(t, p_vec)
+        if self.build_in:
+            return self.analytic_A_integrals(t, p_vec)
         t_end = self.N_cycles * 2*np.pi / self.omega
         t_list = np.linspace(t, t_end, 1000)
         return np.trapz([2*np.dot(p_vec, self.A_field(t)) + np.sqrt(np.sum(self.A_field(t)**2)) for t in t_list], t_list)
@@ -176,7 +176,7 @@ class AboveThresholdIonization:
         :return:
         """
         val = p_vec + self.A_field(ts)
-        return (val[0]**2 + val[1]**2 + val[2]**2) + 2 * self.Ip  #np.linalg.norm(p_vec + self.A_field(ts))**2 + 2 * self.Ip
+        return 0.5 * (val[0]**2 + val[1]**2 + val[2]**2) + self.Ip  #np.linalg.norm(p_vec + self.A_field(ts))**2 + 2 * self.Ip
 
     def action_derivative_real_imag(self, ts_list, p_vec):
         val = self.action_derivative(p_vec, ts_list[0] + 1j*ts_list[1])
@@ -200,7 +200,7 @@ class AboveThresholdIonization:
         # Should try to do this with numpy array magic
         for i, ti in enumerate(ti_list):
             for j, tr in enumerate(tr_list):
-                res_grid[i,j] = self.action_derivative(p_vec, tr + 1j*ti)
+                res_grid[i, j] = self.action_derivative(p_vec, tr + 1j*ti)
 
         res_grid = np.log10(np.abs(res_grid) ** 2)
         fig, ax = plt.subplots()
@@ -243,11 +243,11 @@ class AboveThresholdIonization:
         p_vec = np.array(p_vec)  # Just to be sure...
         amplitude = 0
         if saddle_times is not None:
-            print(saddle_times)
+            #print(saddle_times)
             # Use the saddle-point approximation
             for ts in saddle_times:
-                action_double_derivative = np.sum(-(p_vec + self.A_field(ts)) * self.E_field(ts))
-                amplitude += np.sqrt(2*np.pi*1j/action_double_derivative + 1e-10) * np.exp(-1j * self.action(ts, p_vec))
+                action_double_derivative = np.dot(-(p_vec + self.A_field(ts)), self.E_field(ts))
+                amplitude += np.sqrt(2*np.pi*1j/action_double_derivative) * np.exp(1j * self.action(ts, p_vec))
             return amplitude
         else:
             # Numerical integration of the time integral
@@ -311,14 +311,14 @@ class AboveThresholdIonization:
 
 settings_dict = {}  # This could be a very nice feature
 ATI = AboveThresholdIonization()
-#SP_guess = ATI.get_saddle_guess((0., 2*np.pi * ATI.N_cycles/ATI.omega), (0., 80), 400, 400)
-#print(SP_guess)
-#root_list = ATI.find_saddle_times(SP_guess, np.array([0.5, 0., 0.5]))
-#print(root_list)
+
+print(ATI.px_start, ATI.px_end)
+
 ATI.get_saddle_guess([0, ATI.N_cycles * 2*np.pi/ATI.omega], [0, 80], 400, 400)
 PMD = ATI.calculate_pmd()
 M = np.abs(PMD)**2
-plt.imshow(M, norm=LogNorm(vmax=np.max(M), vmin=np.max(M)*1e-4))
+plt.imshow(np.flip(M,0), norm=LogNorm(vmax=np.max(M), vmin=np.max(M)*1e-8), aspect='auto', extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
+
 plt.colorbar()
 
 plt.show()
