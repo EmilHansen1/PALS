@@ -30,7 +30,7 @@ class AboveThresholdIonization:
                                      py_start=settings_dict['py_start'], py_end=settings_dict['py_end'],
                                      pz=settings_dict['pz'], Nx=settings_dict['Nx'], Ny=settings_dict['Ny'])
 
-        self.guess_saddle_points = []  # List to be filled with initial values for saddle point times
+        self.guess_saddle_points = np.array([])  # List to be filled with initial values for saddle point times
 
     def set_field_params(self, lambd, intensity, cep, N_cycles):
         """
@@ -49,6 +49,7 @@ class AboveThresholdIonization:
         self.omega = 2. * np.pi * 137.036 / (lambd * 1.e-9 / 5.29177e-11)
         self.Up = E_max**2 / (4 * self.omega**2)
         self.rtUp = np.sqrt(self.Up)
+        self.period = 2*np.pi * N_cycles/self.omega
 
     def set_fields(self, build_in_field='', custom_A_field=None, custom_E_field=None):
         """
@@ -58,7 +59,9 @@ class AboveThresholdIonization:
         :param custom_A_field: Custom A-field. Must have form A_field(t), with t being time in a.u.
         :param custom_E_field: Custom E-field. Must have form E_field(t), with t being time in a.u.
         """
+        self.build_in = ''
         if build_in_field:
+            self.build_in = build_in_field
             if build_in_field == 'sin2':
                 self.A_field = self.A_field_sin2
                 self.E_field = self.E_field_sin2
@@ -92,14 +95,86 @@ class AboveThresholdIonization:
         Sin^2 field. One possible choice of 'build in' pulse forms. Uses the field parameters of the class.
         :param t: Time (a.u.)
         """
-        return np.array([0, 0, 2 * self.rtUp * np.sin(self.omega * t / (2*self.N_cycles))**2 * np.cos(self.omega * t + self.cep)])
+        return np.array([2 * self.rtUp * np.sin(self.omega * t / (2*self.N_cycles))**2 * np.cos(self.omega * t + self.cep), 0, 0])
 
     def E_field_sin2(self, t):
         term1 = 2*np.sqrt(self.Up) * np.sin(self.omega*t/(2*self.N_cycles))**2 * np.sin(self.omega*t + self.cep)
         term2 = -np.sqrt(self.Up)/self.N_cycles * np.sin(self.omega*t/self.N_cycles) * np.cos(self.omega*t + self.cep)
         return np.array([0, 0, self.omega * (term1 + term2)])
 
+    def AI_sin2(s, t):
+        """
+        Integral of sin2 vector potential
+        :param t: time
+        """
+        if s.N_cycles == 1:
+            return -s.rtUp * (2*np.cos(s.cep) * t*s.omega + 3*np.sin(s.cep) - 4*np.sin(s.omega*t + s.cep) +
+                        np.sin(2*s.omega*t + s.cep))/(4*s.omega)
+        else:
+            return s.rtUp/(2*s.omega*(s.N_cycles**2-1)) * (s.N_cycles*(s.N_cycles+1)*np.sin((s.omega*t*(s.N_cycles-1) + s.cep*s.N_cycles)/s.N_cycles)
+                                        + s.N_cycles*(s.N_cycles-1)*np.sin((s.omega*t*(s.N_cycles+1) + s.cep*s.N_cycles)/s.N_cycles)
+                                        - 2*s.N_cycles**2*np.sin(s.omega*t+s.cep) - 2*np.sin(s.cep) + 2*np.sin(s.omega*t+s.cep))
+
+    def AI2_sin2(s, t):
+        """
+        Integral of sin2 vector potential squared
+        :param t: time
+        """
+        if s.N_cycles == 1:
+            return -s.Up/(96*s.omega) * (-12*np.cos(2*s.cep)*t*s.omega - 72*s.omega*t + 96*np.sin(s.omega*t) - 12*np.sin(2*s.omega*t)
+                        + 48*np.sin(s.omega*t+2*s.cep) + 16*np.sin(3*s.omega*t+2*s.cep) - 3*np.sin(4*s.omega*t+2*s.cep)
+                        - 36*np.sin(2*s.omega*t+2*s.cep) - 25*np.sin(2*s.cep))
+        else:
+            fac = 24*s.Up / (32*s.N_cycles**4*s.omega - 40*s.N_cycles**2*s.omega + 8*s.omega)
+            term1 = -1/6 * (s.N_cycles-0.5) * (-s.N_cycles**2 + np.cos(2*s.omega*t+2*s.cep) + 1) * (s.N_cycles+0.5) * s.N_cycles * np.sin(2*s.omega*t/s.N_cycles)
+            term2 = (1/6*s.N_cycles**4 - 1/24*s.N_cycles**2) * np.sin(2*s.omega*t + 2*s.cep) * np.cos(2*s.omega*t/s.N_cycles)
+            term3 = -2/3 * (s.N_cycles-1) * (s.N_cycles+1) * (s.N_cycles**2*np.cos(s.omega*t/s.N_cycles) - 3*s.N_cycles**2/4 + 3/16) * np.sin(2*s.omega*t+2*s.cep)
+            term4 = (1/3*s.N_cycles**3 - 1/3*s.N_cycles) * np.sin(s.omega*t/s.N_cycles) * np.cos(2*s.omega*t+2*s.cep)
+            term5 = (-4/3*s.N_cycles**5 + 5/3*s.N_cycles**3 - 1/3*s.N_cycles) * np.sin(s.omega*t/s.N_cycles)
+            rest_terms =s.N_cycles**4*s.omega*t - 5*s.N_cycles**2*s.omega*t/4 + s.omega*t/4 - np.sin(s.cep)*np.cos(s.cep)/4
+            return fac * (term1 + term2 + term3 + term4 + term5 + rest_terms)
+
+    def action(self, t, p_vec):
+        """
+        Calculation of the SFA action
+        :param t: time
+        :param p_vec: momentum vector
+        """
+        p2 = p_vec[0]**2 + p_vec[1]**2 + p_vec[2]**2
+        return (self.Ip + p2) * t + self.A_integrals(t, p_vec)
+
+    def analytic_A_integrals(self, t, p_vec):
+        """
+        Wrapper for the different analytical integrals of the vector potentials for the different field types
+        :param t: time
+        :param p_vec: momentum vector
+        """
+        if self.build_in == 'sin2':
+            return 2*p_vec[0]*self.AI_sin2(t) + self.AI2_sin2(t)
+        # One can add additional field types here
+        else:
+            raise Exception("Analytical integrals for this field type does not exist!")
+
+    def A_integrals(self, t, p_vec):
+        """
+        Calculation of the vector potential integrals needed in the action. Redirects for analytical calculation or
+        performs the numerical integration directly.
+        :param t: time
+        :param p_vec: momentum vector
+        """
+        #if self.build_in:
+        #    return self.analytic_A_integrals(t, p_vec)
+        t_end = self.N_cycles * 2*np.pi / self.omega
+        t_list = np.linspace(t, t_end, 1000)
+        return np.trapz([2*np.dot(p_vec, self.A_field(t)) + np.sqrt(np.sum(self.A_field(t)**2)) for t in t_list], t_list)
+
     def action_derivative(self, p_vec, ts):
+        """
+        Calculates the derivative of the SFA action
+        :param p_vec: momentum vector
+        :param ts:
+        :return:
+        """
         val = p_vec + self.A_field(ts)
         return (val[0]**2 + val[1]**2 + val[2]**2) + 2 * self.Ip  #np.linalg.norm(p_vec + self.A_field(ts))**2 + 2 * self.Ip
 
@@ -107,12 +182,12 @@ class AboveThresholdIonization:
         val = self.action_derivative(p_vec, ts_list[0] + 1j*ts_list[1])
         return [val.real, val.imag]
 
-    def get_saddle_guess(self, tr_lims, ti_lims, Nr, Ni, p_vec):
+    def get_saddle_guess(self, tr_lims, ti_lims, Nr, Ni):
         """
         Obtains the saddle point times through user input. User clicks on plot to identify the position of the saddle
         points.
-        :param tr_lims: List of over and upper limit of real saddle time used in plot
-        :param ti_lims: List of over and upper limit of imaginary saddle time used in plot
+        :param tr_lims: List of lower and upper limit of real saddle time used in plot
+        :param ti_lims: List of lower and upper limit of imaginary saddle time used in plot
         :param Nr: Nr. of data points on real axis of plot
         :param Ni: Nr. of data points on imag axis of plot
         :param p_vec: Momentum vector for which saddle points are calculated
@@ -120,6 +195,7 @@ class AboveThresholdIonization:
         tr_list = np.linspace(tr_lims[0], tr_lims[1], Nr)
         ti_list = np.linspace(ti_lims[0], ti_lims[1], Ni)
         res_grid = np.zeros((len(ti_list), len(tr_list)), dtype=complex)
+        p_vec = np.array([self.px_start, self.py_start, self.pz])
 
         # Should try to do this with numpy array magic
         for i, ti in enumerate(ti_list):
@@ -246,3 +322,4 @@ plt.imshow(M, norm=LogNorm(vmax=np.max(M), vmin=np.max(M)*1e-4))
 plt.colorbar()
 
 plt.show()
+
