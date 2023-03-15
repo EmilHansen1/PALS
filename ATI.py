@@ -1,5 +1,8 @@
+"""
+Basic general purpose SFA ATI code.
+Authors: Mads Carlsen & Emil Hansen
+"""
 # %% LIBRARIES
-
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_point_clicker import clicker
@@ -8,8 +11,8 @@ from matplotlib.colors import LogNorm
 from scipy.integrate import quad
 from multiprocessing import Pool
 
-# %% ATI CLASS
 
+# %% ATI CLASS
 class AboveThresholdIonization:
     def __init__(self, settings_dict=None):
         """
@@ -33,7 +36,7 @@ class AboveThresholdIonization:
 
             self.N_cores = settings_dict['N_cores']
 
-        self.guess_saddle_points = np.array([])  # List to be filled with initial values for saddle point times
+        self.guess_saddle_points = []  # List to be filled with initial values for saddle point times
 
     def set_field_params(self, lambd, intensity, cep, N_cycles):
         """
@@ -215,14 +218,25 @@ class AboveThresholdIonization:
                 res_grid[i, j] = self.action_derivative(p_vec, tr + 1j*ti)
 
         res_grid = np.log10(np.abs(res_grid) ** 2)
+
+        # Stuff needed to make interactive plot work also on Jupyter notebook
+        tr_guess = []
+        ti_guess = []
+        self.guess_saddle_points = []
+
+        def on_click(event):  # Handles events for the saddle point plot
+            tr_guess.append(event.xdata)
+            ti_guess.append(event.ydata)
+            self.guess_saddle_points.append(event.xdata + 1j * event.ydata)
+            self.user_points_plot.set_data(tr_guess, ti_guess)
+            self.user_points_plot.figure.canvas.draw()
+
         fig, ax = plt.subplots()
         ax.imshow(np.flip(res_grid, 0), cmap='twilight', interpolation='bicubic', aspect='auto',
                    extent=(tr_lims[0], tr_lims[1], ti_lims[0], ti_lims[1]))
-        klicker = clicker(ax, ["Saddle Points"], markers=["o"])
+        self.user_points_plot, = ax.plot([], [], 'ob')   # Have to be class memeber, else cannot interact with plot in Jupyter notebook
+        cid = fig.canvas.mpl_connect('button_press_event', on_click)
         plt.show()
-
-        guess_sp = klicker.get_positions()['Saddle Points']
-        self.guess_saddle_points = guess_sp[:,0] + 1j * guess_sp[:,1]
 
     def find_saddle_times(self, guess_times, p_vec):
         """
