@@ -166,7 +166,7 @@ class AboveThresholdIonization:
         :param p_vec: momentum vector
         """
         if self.build_in == 'sin2':
-            return 2*p_vec[0]*self.AI_sin2(t) + self.AI2_sin2(t)
+            return p_vec[0]*self.AI_sin2(t) + self.AI2_sin2(t)/2
         # One can add additional field types here
         else:
             raise Exception("Analytical integrals for this field type does not exist!")
@@ -178,7 +178,7 @@ class AboveThresholdIonization:
         :param p_vec: momentum vector
         """
         p2 = p_vec[0]**2 + p_vec[1]**2 + p_vec[2]**2
-        return (self.Ip + p2) * t + self.A_integrals(t, p_vec)
+        return (self.Ip + p2/2) * t + self.A_integrals(t, p_vec)
 
     def action_derivative(self, p_vec, ts):
         """
@@ -355,6 +355,9 @@ if __name__ == "__main__":
     ATI = AboveThresholdIonization(settings_dict=settings_dict)
 
     ATI.get_saddle_guess([0, ATI.N_cycles * 2*np.pi/ATI.omega], [0, 80], 400, 400)
+    #np.save('test_saddle.txt', ATI.guess_saddle_points)
+    #guess = np.load('test_saddle.txt.npy')
+    #ATI.guess_saddle_points = guess
     PMD = ATI.calculate_pmd_SPA()
     M = np.abs(PMD)**2
     plt.imshow(np.flip(M,0), norm=LogNorm(vmax=np.max(M), vmin=np.max(M)*1e-8), aspect='equal', extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
