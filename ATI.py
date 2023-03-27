@@ -331,10 +331,56 @@ class AboveThresholdIonization:
 
         # Now loop over all the py-'slices' and calculate transition amplitude for each, finding saddle times for each
         # Done using multiprocessing starmap to speed up calculations a bit
-        iter_param_list = [(edge_times_i, py_i) for edge_times_i, py_i in zip(edge_list,py_list)]
+        iter_param_list = [(edge_times_i, py_i) for edge_times_i, py_i in zip(edge_list, py_list)]
         with Pool(processes=4) as pool:
             pmd = pool.starmap(self.calculate_pmd_py_slice_SPA, iter_param_list)
         return np.array(pmd)
+
+    def ATI_spectrum(self, max_E, nr_energy_points, min_E=0):
+        E_list = np.linspace(min_E, max_E, nr_energy_points)
+        pass
+
+    def get_saddle_guess_at_momentum(self, p_vec):
+        p_init = np.array([self.px_start, self.py_start, self.pz])
+        saddle_guess = self.guess_saddle_points
+        dp = 0.1
+
+        temp_p = p_init.copy()
+        for i in range(3):
+            N_p = int(abs(p_vec[i] - p_init[i])/dp)
+            p_list = np.linspace(p_init[i], p_vec[i], N_p)
+
+            for pi in p_list[1:]:
+                temp_p[i] = pi
+                saddle_guess = self.find_saddle_times(saddle_guess, temp_p)
+        return saddle_guess
+
+    def ATI_angular_dist(self, N_phi, pz=0, N_cutoff=3, N_energy_trapz=100):
+        max_energy = N_cutoff * self.Up
+        phi_list = np.linspace(0, 2*np.pi, N_phi)
+        energy_list = np.linspace(0, max_energy, N_energy_trapz)
+        p_list = np.sqrt(2*energy_list)
+        res_list = []
+
+        center_saddle = self.get_saddle_guess_at_momentum([0,0,pz])
+
+        for phi in phi_list:
+            saddle_times = center_saddle.copy()
+
+            # Sample data for the energy integral
+            energy_int_list = []
+            for p in p_list:
+                # Find the momentum vector, the saddle times and the transition amplitude
+                p_vec = np.array([np.cos(phi) * p, np.sin(phi), pz])
+                saddle_times = self.find_saddle_times(saddle_times, p_vec)
+
+                amplitude = self.calculate_transition_amplitude(p_vec, saddle_times)
+                energy_int_list.append(np.abs(amplitude)**2)
+
+            # Calculate the integral
+            res_list.append(np.trapz(p_list**2 * energy_int_list, p_list))
+
+        return res_list, phi_list
 
 
 settings_dict = {
@@ -354,27 +400,22 @@ settings_dict = {
 if __name__ == "__main__":
     ATI = AboveThresholdIonization(settings_dict=settings_dict)
 
-    ATI.get_saddle_guess([0, ATI.N_cycles * 2*np.pi/ATI.omega], [0, 80], 400, 400)
+    #ATI.get_saddle_guess([0, ATI.N_cycles * 2*np.pi/ATI.omega], [0, 80], 400, 400)
     #np.save('test_saddle.txt', ATI.guess_saddle_points)
-    #guess = np.load('test_saddle.txt.npy')
-    #ATI.guess_saddle_points = guess
+    guess = np.load('test_saddle.txt.npy')
+    ATI.guess_saddle_points = guess
+
+    angle_spec, angle_list = ATI.ATI_angular_dist(200)
+
+    fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+    ax.plot(angle_list, angle_spec)
+    plt.show()
+
+    """
+    # PMD EXAMPLE
     PMD = ATI.calculate_pmd_SPA()
     M = np.abs(PMD)**2
     plt.imshow(np.flip(M,0), norm=LogNorm(vmax=np.max(M), vmin=np.max(M)*1e-8), aspect='equal', extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
     plt.colorbar()
-
     plt.show()
-
-
-"""
-# Test integrals of A
-t_list = np.linspace(0, ATI.N_cycles * 2*np.pi/ATI.omega, 100)
-A_num_list = []
-for ti in t_list:
-    trapz_list = np.linspace(0, ti, 100)
-    A_num_list.append(np.trapz(ATI.A_field(trapz_list), trapz_list))
-
-plt.plot(t_list, ATI.AI_sin2(t_list))
-plt.plot(t_list, np.array(A_num_list))
-plt.show()
-"""
+    """
