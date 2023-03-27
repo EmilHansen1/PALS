@@ -5,7 +5,6 @@ Authors: Mads Carlsen & Emil Hansen
 # %% LIBRARIES
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_point_clicker import clicker
 from scipy.optimize import root
 from matplotlib.colors import LogNorm
 from scipy.integrate import quad
@@ -21,15 +20,19 @@ class AboveThresholdIonization:
         """
         if settings_dict is None:  # No settings dictionary - use the standard values
             self.Ip = 0.5
-            self.set_field_params(lambd=800, intensity=1e14, cep=np.pi/2, N_cycles=2)
+            self.set_field_params(lambd=800, intensity=1e14, cep=np.pi/2, N_cycles=2,
+                                  ellipticity=None)
             self.set_fields(build_in_field='sin2')  # Set the standard field type
             self.set_momentum_bounds(px_start=-1.5, px_end=1.5, py_start=0., py_end=1.5, pz=0., Nx=200, Ny=100)
             self.N_cores = 4
+            self.ellipticity = 0
         else:
             self.Ip = settings_dict['Ip']
             self.set_field_params(lambd=settings_dict['Wavelength'], intensity=settings_dict['Intensity'],
-                                  cep=settings_dict['cep'], N_cycles=settings_dict['N_cycles'])
-            self.set_fields(build_in_field='sin2') #TODO: use custom field if neccesary
+                                  cep=settings_dict['cep'], N_cycles=settings_dict['N_cycles'],
+                                  ellipticity=settings_dict['ellipticity'])
+            self.set_fields(build_in_field=settings_dict['build_in_field'])
+            print(settings_dict['build_in_field'])
             self.set_momentum_bounds(px_start=settings_dict['px_start'], px_end=settings_dict['px_end'],
                                      py_start=settings_dict['py_start'], py_end=settings_dict['py_end'],
                                      pz=settings_dict['pz'], Nx=settings_dict['Nx'], Ny=settings_dict['Ny'])
@@ -38,10 +41,11 @@ class AboveThresholdIonization:
 
         self.guess_saddle_points = []  # List to be filled with initial values for saddle point times
 
-    def set_field_params(self, lambd, intensity, cep, N_cycles):
+    def set_field_params(self, lambd, intensity, cep, N_cycles, ellipticity=None):
         """
         Function to set field parameters used for the standard build-in fields. If own field is provided, this is not
         needed.
+        :param ellipticity: The ellipticity of the laser field. e in [0, 1]
         :param lambd: Laser carrier wavelength in nm
         :param intensity: Laser intensity in W/cm²
         :param cep: Carrier envelope phase
@@ -49,6 +53,7 @@ class AboveThresholdIonization:
         """
         self.cep = cep
         self.N_cycles = N_cycles
+        self.ellipticity = ellipticity
 
         # Calculate omega and Up. Do the conversion to a.u.
         E_max = np.sqrt(intensity / 3.50945e16)  # Max electric field amplitude (a.u.)
@@ -71,7 +76,13 @@ class AboveThresholdIonization:
             if build_in_field == 'sin2':
                 self.A_field = self.A_field_sin2
                 self.E_field = self.E_field_sin2
-
+            elif self.build_in == 'elliptic':
+                print('Using da elliptic')
+                self.A_field = self.A_field_sin2_ellip
+                self.E_field = self.E_field_sin2_ellip
+            elif self.build_in == 'circular':
+                self.A_field = self.A_field_sin2_circ
+                self.E_field = self.E_field_sin2_circ
                 # More build-in fields can be added here:
             else:
                 raise Exception('The build-in field specified does not exist!')
@@ -145,6 +156,216 @@ class AboveThresholdIonization:
             rest_terms =s.N_cycles**4*s.omega*t - 5*s.N_cycles**2*s.omega*t/4 + s.omega*t/4 - np.sin(s.cep)*np.cos(s.cep)/4
             return fac * (term1 + term2 + term3 + term4 + term5 + rest_terms)
 
+    def A_field_sin2_ellip(self, t):
+        """
+        A-field for a given time for the elliptically polarized field propagating in the z-direction
+        :param t: time in a.u.
+        :return: A(t) as a 3D numpy array
+        """
+        front_factor = 2 * np.sqrt(self.Up) / np.sqrt(1 + self.ellipticity**2)
+        envelope = np.sin(self.omega * t / (2 * self.N_cycles))**2
+        return front_factor * np.array([np.cos(self.omega * t + self.cep),
+                                        self.ellipticity * np.sin(self.omega * t + self.cep),
+                                        0]) * envelope
+
+    def E_field_sin2_ellip(self, t):
+        cg = self.N_cycles
+        cg1 = self.Up
+        cg5 = self.ellipticity
+        cg7 = self.omega
+        cg9 = self.cep
+        cg11 = t
+        Efx = -2 * np.sqrt(cg1) * (cg5 ** 2 + 1) ** (-0.1e1 / 0.2e1) * np.sin(cg7 * cg11 / cg / 2) * np.cos(
+            cg7 * cg11 + cg9) * cg7 / cg * np.cos(cg7 * cg11 / cg / 2) + 2 * np.sqrt(cg1) * (cg5 ** 2 + 1) ** (
+                          -0.1e1 / 0.2e1) * np.sin(cg7 * cg11 / cg / 2) ** 2 * cg7 * np.sin(cg7 * cg11 + cg9)
+        Efy = -2 * np.sqrt(cg1) * (cg5 ** 2 + 1) ** (-0.1e1 / 0.2e1) * np.sin(cg7 * cg11 / cg / 2) * cg5 * np.sin(
+            cg7 * cg11 + cg9) * cg7 / cg * np.cos(cg7 * cg11 / cg / 2) - 2 * np.sqrt(cg1) * (cg5 ** 2 + 1) ** (
+                          -0.1e1 / 0.2e1) * np.sin(cg7 * cg11 / cg / 2) ** 2 * cg5 * cg7 * np.cos(cg7 * cg11 + cg9)
+        return np.array([Efx, Efy, 0])
+        
+        
+    def AI_sin2_ellip(self, t):
+        """
+        The integral of the A-field at a time t for elliptically polarized light propagating in the z-direction
+        :param t: time in a.u.
+        :return: A(t) as a 3D numpy array
+        """
+        if self.N_cycles == 1:
+            '''AIx = np.sqrt(self.Up) / (2 * np.sqrt(self.ellipticity**2 + 1) * self.omega) \
+                  * (c_cep*s_wt*c_wt + s_cep*c_wt**2 + c_wt*w*t + 2*s_wt*c_cep + 2*s_wt*s_cep - 3*s_cep)
+            AIy = np.sqrt(self.Up) * self.ellipticity / (2 * np.sqrt(self.ellipticity**2 + 1) * self.omega) \
+                  * (c_cep*c_wt**2 - s_cep*s_wt*c_wt - s_wt*w*t + 2*c_wt*c_cep - 2*s_wt*s_cep - 3*c_cep)'''
+            cg = self.Up
+            cg3 = self.ellipticity
+            cg5 = self.omega
+            cg7 = self.cep
+            cg9 = t
+            AIx = np.sqrt(cg) * (np.cos(cg7) * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) + np.sin(cg7) * np.cos(cg5 * cg9) ** 2 + np.cos(cg7) * cg5 * cg9 + 2 * np.sin(cg5 * cg9) * np.cos(cg7) + 2 * np.cos(cg5 * cg9) * np.sin(cg7) - 3 * np.sin(cg7)) * (cg3 ** 2 + 1) ** (-0.1e1 / 0.2e1) / cg5 / 2
+            AIy = -np.sqrt(cg) * cg3 * (np.cos(cg7) * np.cos(cg5 * cg9) ** 2 - np.sin(cg7) * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) - np.sin(cg7) * cg5 * cg9 + 2 * np.cos(cg5 * cg9) * np.cos(cg7) - 2 * np.sin(cg5 * cg9) * np.sin(cg7) - 3 * np.cos(cg7)) * (cg3 ** 2 + 1) ** (-0.1e1 / 0.2e1) / cg5 / 2
+
+            return np.array([AIx, AIy, 0])
+        else:
+            '''AIx = np.sqrt(self.Up) / (w * np.sqrt(self.ellipticity**2 + 1) * (N2 - 1)) \
+                  * (N2*s_wt*c_cep*c_wtn + N2*c_wt*s_cep*c_wtn + N2*s_wt*c_cep + N2*c_wt*s_cep + N*s_wt*s_cep*s_wtn
+                     - N*c_wt*c_cep*s_wtn - 2*N2*s_cep - s_wt*c_cep - c_wt*s_cep + s_cep)
+            AIy = -np.sqrt(self.Up) * self.ellipticity / (w * np.sqrt(self.ellipticity**2 + 1) * (N2 - 1)) \
+                  * (N2*c_wt*c_cep*c_wtn - N2*s_wt*s_cep*c_wtn + N2*c_wt*c_cep - N2*s_wt*s_cep + N*c_wt*s_cep*s_wtn
+                     + N*s_wt*c_cep*s_wtn - 2*N2*c_cep - c_wt*c_cep + s_wt*s_cep + c_cep)'''
+            cg = self.N_cycles
+            cg1 = self.Up
+            cg5 = self.ellipticity
+            cg7 = self.omega
+            cg9 = self.cep
+            cg11 = t
+            AIx = -np.sqrt(cg1) * (cg ** 2 * np.sin(cg7 * cg11) * np.cos(cg9) * np.cos(
+                0.1e1 / cg * cg7 * cg11) + cg ** 2 * np.cos(cg7 * cg11) * np.sin(cg9) * np.cos(
+                0.1e1 / cg * cg7 * cg11) - cg ** 2 * np.sin(cg7 * cg11) * np.cos(cg9) - cg ** 2 * np.cos(
+                cg7 * cg11) * np.sin(cg9) + cg * np.sin(cg7 * cg11) * np.sin(cg9) * np.sin(
+                0.1e1 / cg * cg7 * cg11) - cg * np.cos(cg7 * cg11) * np.cos(cg9) * np.sin(
+                0.1e1 / cg * cg7 * cg11) + np.sin(cg7 * cg11) * np.cos(cg9) + np.cos(cg7 * cg11) * np.sin(
+                cg9) - np.sin(cg9)) * (cg5 ** 2 + 1) ** (-0.1e1 / 0.2e1) / cg7 / (cg ** 2 - 1)
+            AIy = np.sqrt(cg1) * cg5 * (cg ** 2 * np.cos(cg7 * cg11) * np.cos(cg9) * np.cos(
+                0.1e1 / cg * cg7 * cg11) - cg ** 2 * np.sin(cg7 * cg11) * np.sin(cg9) * np.cos(
+                0.1e1 / cg * cg7 * cg11) - cg ** 2 * np.cos(cg7 * cg11) * np.cos(cg9) + cg ** 2 * np.sin(
+                cg7 * cg11) * np.sin(cg9) + cg * np.cos(cg7 * cg11) * np.sin(cg9) * np.sin(
+                0.1e1 / cg * cg7 * cg11) + cg * np.sin(cg7 * cg11) * np.cos(cg9) * np.sin(
+                0.1e1 / cg * cg7 * cg11) + np.cos(cg7 * cg11) * np.cos(cg9) - np.sin(cg7 * cg11) * np.sin(
+                cg9) - np.cos(cg9)) * (cg5 ** 2 + 1) ** (-0.1e1 / 0.2e1) / cg7 / (cg ** 2 - 1)
+            return np.array([AIx, AIy, 0])
+
+
+    def AI2_sin2_ellip(self, t):
+        """
+        The time-integral over [0, t] of the A-field squared
+        :param t: time
+        :return: the value of the integral at time t
+        """
+        # WARNING: The following code looks absolutely awful because I used Maple to write
+        # the (just as) awful expression for the integral into python code. Thanks, Maple!
+        if self.N_cycles == 1:
+            cg = self.Up
+            cg1 = self.ellipticity
+            cg3 = self.omega
+            cg5 = self.cep
+            cg7 = t
+            cg0 = -cg * ((3 * cg1 ** 2 - 3) * np.sin(2 * cg3 * cg7 + 2 * cg5) + (0.4e1 / 0.3e1 * cg1 ** 2 - 0.4e1 / 0.3e1) * np.sin(3 * cg3 * cg7 + 2 * cg5) + np.cos(2 * cg5) * cg3 * cg7 * cg1 ** 2 - 6 * cg3 * cg7 * cg1 ** 2 - np.cos(2 * cg5) * cg3 * cg7 + 4 * np.sin(cg3 * cg7 + 2 * cg5) * cg1 ** 2 + np.sin(4 * cg3 * cg7 + 2 * cg5) * cg1 ** 2 / 4 - 0.103e3 / 0.12e2 * np.sin(2 * cg5) * cg1 ** 2 - 8 * np.sin(cg3 * cg7) * cg1 ** 2 - np.sin(2 * cg3 * cg7) * cg1 ** 2 - 6 * cg3 * cg7 - 4 * np.sin(cg3 * cg7 + 2 * cg5) - np.sin(4 * cg3 * cg7 + 2 * cg5) / 4 + 0.103e3 / 0.12e2 * np.sin(2 * cg5) - 8 * np.sin(cg3 * cg7) - np.sin(2 * cg3 * cg7)) / cg3 / (cg1 ** 2 + 1) / 8
+            return cg0
+        else:
+            cg = self.N_cycles
+            cg1 = self.Up
+            cg5 = self.ellipticity
+            cg7 = self.omega
+            cg9 = self.cep
+            cg11 = t
+            cg3 = cg1 * (-4 * (cg - 0.1e1 / 0.2e1) * (
+                        np.cos(cg7 * cg11) ** 2 * np.sin(cg9) * np.cos(cg9) + np.sin(cg7 * cg11) * (
+                            np.cos(cg9) ** 2 - 0.1e1 / 0.2e1) * np.cos(cg7 * cg11) - np.sin(cg9) * np.cos(
+                    cg9) / 2) * (cg + 0.1e1 / 0.2e1) * (cg5 - 1) * (cg5 + 1) * cg ** 2 * np.cos(
+                0.1e1 / cg * cg7 * cg11) ** 2 + ((cg - 0.1e1 / 0.2e1) * (cg + 0.1e1 / 0.2e1) * (
+                        ((4 * cg5 ** 2 - 4) * np.cos(cg9) ** 2 - 2 * cg5 ** 2 + 2) * np.cos(
+                    cg7 * cg11) ** 2 - 4 * np.sin(cg7 * cg11) * np.cos(cg9) * np.sin(cg9) * (cg5 - 1) * (
+                                    cg5 + 1) * np.cos(cg7 * cg11) + (-2 * cg5 ** 2 + 2) * np.cos(cg9) ** 2 - 2 + (
+                                    cg5 ** 2 + 1) * cg ** 2) * np.sin(0.1e1 / cg * cg7 * cg11) + 8 * (cg + 1) * (
+                                                             np.cos(cg7 * cg11) ** 2 * np.sin(cg9) * np.cos(
+                                                         cg9) + np.sin(cg7 * cg11) * (
+                                                                         np.cos(cg9) ** 2 - 0.1e1 / 0.2e1) * np.cos(
+                                                         cg7 * cg11) - np.sin(cg9) * np.cos(cg9) / 2) * (
+                                                             cg5 - 1) * (cg - 1) * (cg5 + 1) * cg) * cg * np.cos(
+                0.1e1 / cg * cg7 * cg11) - 4 * (cg + 1) * (cg - 1) * (
+                                     (cg5 - 1) * (np.cos(cg9) ** 2 - 0.1e1 / 0.2e1) * (cg5 + 1) * np.cos(
+                                 cg7 * cg11) ** 2 - np.sin(cg7 * cg11) * np.cos(cg9) * np.sin(cg9) * (cg5 - 1) * (
+                                                 cg5 + 1) * np.cos(cg7 * cg11) + (
+                                                 -cg5 ** 2 / 2 + 0.1e1 / 0.2e1) * np.cos(cg9) ** 2 - 0.1e1 / 0.2e1 + (
+                                                 cg5 ** 2 + 1) * cg ** 2) * cg * np.sin(
+                0.1e1 / cg * cg7 * cg11) - 4 * (cg - 0.1e1 / 0.2e1) * (cg + 0.1e1 / 0.2e1) * (
+                                     cg ** 2 - 0.3e1 / 0.2e1) * (cg5 - 1) * np.cos(cg9) * (cg5 + 1) * np.sin(
+                cg9) * np.cos(cg7 * cg11) ** 2 - 4 * (cg - 0.1e1 / 0.2e1) * np.sin(cg7 * cg11) * (
+                                     cg + 0.1e1 / 0.2e1) * (cg ** 2 - 0.3e1 / 0.2e1) * (cg5 - 1) * (
+                                     np.cos(cg9) ** 2 - 0.1e1 / 0.2e1) * (cg5 + 1) * np.cos(cg7 * cg11) + 3 * (
+                                     cg + 1) * (cg - 1) * (
+                                     0.2e1 / 0.3e1 * (cg ** 2 - 0.3e1 / 0.4e1) * (cg5 - 1) * (cg5 + 1) * np.sin(
+                                 cg9) * np.cos(cg9) + (cg - 0.1e1 / 0.2e1) * cg7 * (cg + 0.1e1 / 0.2e1) * cg11 * (
+                                                 cg5 ** 2 + 1))) / cg7 / (
+                              4 * cg ** 4 * cg5 ** 2 + 4 * cg ** 4 - 5 * cg ** 2 * cg5 ** 2 - 5 * cg ** 2 + cg5 ** 2 + 1)
+            return cg3
+
+    def A_field_sin2_circ(self, t):
+        """
+        Vector potential for circular polarized field propagating in the z-direction
+        :param t: time
+        :return: A(t) as a 3D numpy array
+        """
+        factor = np.sqrt(2 * self.Up) * np.sin(self.omega * t / (2 * self.N_cycles))**2
+        return factor * np.array([np.cos(self.omega * t), np.sin(self.omega * t), 0])
+    
+    def E_field_sin2_circ(self, t):
+        cg = self.N_cycles
+        cg1 = self.Up
+        cg3 = self.omega
+        cg5 = self.cep
+        cg7 = t
+        Efx = -np.sqrt(cg1) * np.sqrt(2) * np.sin(cg3 * cg7 / cg / 2) * np.cos(
+            cg3 * cg7 + cg5) * cg3 / cg * np.cos(cg3 * cg7 / cg / 2) + np.sqrt(cg1) * np.sqrt(2) * np.sin(
+            cg3 * cg7 / cg / 2) ** 2 * cg3 * np.sin(cg3 * cg7 + cg5)
+        Efy = -np.sqrt(cg1) * np.sqrt(2) * np.sin(cg3 * cg7 / cg / 2) * np.sin(
+            cg3 * cg7 + cg5) * cg3 / cg * np.cos(cg3 * cg7 / cg / 2) - np.sqrt(cg1) * np.sqrt(2) * np.sin(
+            cg3 * cg7 / cg / 2) ** 2 * cg3 * np.cos(cg3 * cg7 + cg5)
+        return np.array([Efx, Efy, 0])
+
+
+    def AI_sin2_circ(self, t):
+        if self.N_cycles != 1:
+            cg = self.N_cycles
+            cg1 = self.Up
+            cg5 = self.omega
+            cg7 = self.cep
+            cg9 = t
+
+            AIx = -np.sqrt(cg1) * np.sqrt(2) * (cg ** 2 * np.sin(cg5 * cg9) * np.cos(cg7) * np.cos(
+                0.1e1 / cg * cg5 * cg9) + cg ** 2 * np.cos(cg5 * cg9) * np.sin(cg7) * np.cos(
+                0.1e1 / cg * cg5 * cg9) - cg ** 2 * np.sin(cg5 * cg9) * np.cos(cg7) - cg ** 2 * np.cos(
+                cg5 * cg9) * np.sin(cg7) + cg * np.sin(cg5 * cg9) * np.sin(cg7) * np.sin(
+                0.1e1 / cg * cg5 * cg9) - cg * np.cos(cg5 * cg9) * np.cos(cg7) * np.sin(
+                0.1e1 / cg * cg5 * cg9) + np.sin(cg5 * cg9) * np.cos(cg7) + np.cos(cg5 * cg9) * np.sin(
+                cg7) - np.sin(cg7)) / cg5 / (cg ** 2 - 1) / 2
+
+            AIy = np.sqrt(cg1) * np.sqrt(2) * (cg ** 2 * np.cos(cg5 * cg9) * np.cos(cg7) * np.cos(
+                0.1e1 / cg * cg5 * cg9) - cg ** 2 * np.sin(cg5 * cg9) * np.sin(cg7) * np.cos(
+                0.1e1 / cg * cg5 * cg9) - cg ** 2 * np.cos(cg5 * cg9) * np.cos(cg7) + cg ** 2 * np.sin(
+                cg5 * cg9) * np.sin(cg7) + cg * np.cos(cg5 * cg9) * np.sin(cg7) * np.sin(
+                0.1e1 / cg * cg5 * cg9) + cg * np.sin(cg5 * cg9) * np.cos(cg7) * np.sin(
+                0.1e1 / cg * cg5 * cg9) + np.cos(cg5 * cg9) * np.cos(cg7) - np.sin(cg5 * cg9) * np.sin(
+                cg7) - np.cos(cg7)) / cg5 / (cg ** 2 - 1) / 2
+
+            return np.array([AIx, AIy, 0])
+        else:
+            cg = self.Up
+            cg3 = self.omega
+            cg5 = self.cep
+            cg7 = t
+            AIx = np.sqrt(cg) * np.sqrt(2) * (
+                        np.cos(cg5) * np.sin(cg7 * cg3) * np.cos(cg7 * cg3) + np.sin(cg5) * np.cos(
+                    cg7 * cg3) ** 2 + np.cos(cg5) * cg3 * cg7 + 2 * np.sin(cg7 * cg3) * np.cos(
+                    cg5) + 2 * np.cos(cg7 * cg3) * np.sin(cg5) - 3 * np.sin(cg5)) / cg3 / 4
+
+            AIy = -np.sqrt(cg) * np.sqrt(2) * (
+                        np.cos(cg5) * np.cos(cg7 * cg3) ** 2 - np.sin(cg5) * np.sin(cg7 * cg3) * np.cos(
+                    cg7 * cg3) - np.sin(cg5) * cg3 * cg7 + 2 * np.cos(cg7 * cg3) * np.cos(cg5) - 2 * np.sin(
+                    cg7 * cg3) * np.sin(cg5) - 3 * np.cos(cg5)) / cg3 / 4
+
+            return np.array([AIx, AIy, 0])
+
+
+    def AI2_sin2_circ(self, t):
+        cg = self.N_cycles
+        cg1 = self.Up
+        cg5 = self.omega
+        cg7 = t
+        AI2 = cg1 * (cg * np.sin(0.1e1 / cg * cg5 * cg7) * (
+                    np.cos(0.1e1 / cg * cg5 * cg7) - 4) + 3 * cg5 * cg7) / cg5 / 4
+        return AI2
+    
+    
     def A_integrals(self, t, p_vec):
         """
         Calculation of the vector potential integrals needed in the action. Redirects for analytical calculation or
@@ -167,6 +388,13 @@ class AboveThresholdIonization:
         """
         if self.build_in == 'sin2':
             return p_vec[0]*self.AI_sin2(t) + self.AI2_sin2(t)/2
+        elif self.build_in == 'elliptic':
+            #pA = p_vec * self.AI_sin2_ellip(t)
+            AI = self.AI_sin2_ellip(t)
+            return p_vec[0]*AI[0] + p_vec[1]*AI[1] + p_vec[2]*AI[2] + self.AI2_sin2_ellip(t)/2 #pA[0] + pA[1] + pA[2] + self.AI2_sin2_ellip(t)/2
+        elif self.build_in == 'circular':
+            pA = p_vec * self.AI_sin2_circ(t)
+            return pA[0] + pA[1] + pA[2] + self.AI2_sin2_circ(t)/2
         # One can add additional field types here
         else:
             raise Exception("Analytical integrals for this field type does not exist!")
@@ -188,7 +416,7 @@ class AboveThresholdIonization:
         :return:
         """
         val = p_vec + self.A_field(ts)
-        return 0.5 * (val[0]**2 + val[1]**2 + val[2]**2) + self.Ip  #np.linalg.norm(p_vec + self.A_field(ts))**2 + 2 * self.Ip
+        return 0.5 * (val[0]**2 + val[1]**2 + val[2]**2) + self.Ip #0.5 * (val[0]**2 + val[1]**2 + val[2]**2) + self.Ip  #np.linalg.norm(p_vec + self.A_field(ts))**2 + 2 * self.Ip
 
     def action_derivative_real_imag(self, ts_list, p_vec):
         """
@@ -271,14 +499,17 @@ class AboveThresholdIonization:
         if saddle_times is not None:
             # Use the saddle-point approximation
             for ts in saddle_times:
-                action_double_derivative = np.dot(-(p_vec + self.A_field(ts)), self.E_field(ts))
+                vec1 = -(p_vec + self.A_field(ts))
+                vec2 = self.E_field(ts)
+                vec3 = vec1 * vec2
+                action_double_derivative = np.dot(-(p_vec + self.A_field(ts)), self.E_field(ts)) # vec3[0] + vec3[1] + vec3[2] #
                 amplitude += np.sqrt(2*np.pi*1j/action_double_derivative) * np.exp(1j * self.action(ts, p_vec))
             return amplitude
         else:
             # Numerical integration of the time integral
             t_end = self.N_cycles * 2*np.pi / self.omega
-            t_list = np.linspace(0, t_end, int(1e4)*self.N_cycles)
-            amplitude = quad(lambda t: np.exp(-1j*self.action(t_list, p_vec)), 0, t_end)  # np.trapz(np.exp(-1j*self.action(t_list, p_vec)), t_list)
+            #t_list = np.linspace(0, t_end, int(3e2)*self.N_cycles)
+            amplitude = quad(lambda t: np.exp(-1j*self.action(t, p_vec)), 0, t_end)  # np.trapz(np.exp(-1j*self.action(t_list, p_vec)), t_list)
             return amplitude
 
     def calculate_pmd_py_slice_SPA(self, saddle_times_start, py):
@@ -341,40 +572,49 @@ settings_dict = {
     'Ip': 0.5,              # Ionization potential (a.u.)
     'Wavelength': 800,      # (nm)
     'Intensity': 1e14,      # (W/cm^2)
-    'cep': np.pi/2,         # Carrier envelope phase
+    'cep': np.pi,         # Carrier envelope phase
     'N_cycles': 2,          # Nr of cycles
-    'build_in_field': 'sin2',   # Build in field type to use. If using other field methods leave as a empty string ''.
+    'build_in_field': 'circular',   # Build in field type to use. If using other field methods leave as a empty string ''.
     'px_start': -1.5, 'px_end': 1.5,  # Momentum bounds in x direction (a.u.)
-    'py_start': 0., 'py_end': 1.5,    # Momentum bounds in y direction (a.u.)
-    'pz': 0.,               # Momentum in z direction (a.u.)
-    'Nx': 200, 'Ny': 100,   # Grid resolution in the x and y direction
+    'py_start': -1.5, 'py_end': 1.5,    # Momentum bounds in y direction (a.u.)
+    'pz': 0.0,               # Momentum in z direction (a.u.)
+    'Nx': 125, 'Ny': 125,   # Grid resolution in the x and y direction
     'N_cores': 4,           # Nr. of cores to use in the multiprocessing calculations
+    'ellipticity': None      # The ellipticity of the field. 0 is linear, 1 is circular  (only i)
 }
 
 if __name__ == "__main__":
     ATI = AboveThresholdIonization(settings_dict=settings_dict)
-
+    #print(ATI.AI2_sin2_ellip(1 + 1j))
     ATI.get_saddle_guess([0, ATI.N_cycles * 2*np.pi/ATI.omega], [0, 80], 400, 400)
     #np.save('test_saddle.txt', ATI.guess_saddle_points)
     #guess = np.load('test_saddle.txt.npy')
     #ATI.guess_saddle_points = guess
     PMD = ATI.calculate_pmd_SPA()
     M = np.abs(PMD)**2
-    plt.imshow(np.flip(M,0), norm=LogNorm(vmax=np.max(M), vmin=np.max(M)*1e-8), aspect='equal', extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
+    plt.imshow(np.flip(M,0), norm=LogNorm(vmax=np.max(M), vmin=np.max(M)*1e-6), aspect='equal', extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
     plt.colorbar()
-
     plt.show()
 
 
-"""
+
 # Test integrals of A
 t_list = np.linspace(0, ATI.N_cycles * 2*np.pi/ATI.omega, 100)
 A_num_list = []
 for ti in t_list:
-    trapz_list = np.linspace(0, ti, 100)
-    A_num_list.append(np.trapz(ATI.A_field(trapz_list), trapz_list))
+    trapz_list = np.linspace(0, ti, 1000)
+    As = [ATI.A_field(t)[1] for t in trapz_list]
+    A_num_list.append(np.trapz(As, trapz_list))
 
-plt.plot(t_list, ATI.AI_sin2(t_list))
-plt.plot(t_list, np.array(A_num_list))
+
+plt.plot(t_list, [ATI.A_field_sin2(f)[0] for f in t_list])
+plt.plot(t_list, [ATI.A_field_sin2_ellip(f)[0] for f in t_list], color='r', ls='--')
 plt.show()
-"""
+
+A_impl = [ATI.AI_sin2_ellip(t)[1] for t in t_list]
+print(A_impl)
+plt.plot(t_list, A_impl, label='Implementation')
+plt.plot(t_list, np.array(A_num_list), label='Numerical', ls='--')
+plt.legend(frameon=False)
+plt.minorticks_on()
+plt.show()
