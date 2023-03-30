@@ -1,8 +1,11 @@
+# %% Libraries
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.fft import fft, fftfreq
 from scipy.integrate import quad
 from scipy.optimize import root
+
+# %% HHG class
 
 class HighHarmonicGeneration:
     def __init__(self, settings_dict):
@@ -236,12 +239,36 @@ class HighHarmonicGeneration:
         res_list, omega_list = self.fourier_trapz(t_recomb_list, fft_list)
         return res_list, omega_list
 
+    def get_dipole(self):
+        # Outer operation: Perfrom FFT on recomb. time integral.
+        # For each datapoint in FFT: Calcualte the ionization integral (trapz is perhaps good enough?)
+        # For each datapoint in inner integral: Determine k saddle points + prefactors + action
+        t_recomb_list = np.linspace(0, 1 * self.period, 50000)
+        print(t_recomb_list[1] - t_recomb_list[0])
+        dipole_list = []
+
+        if not np.any(self.guess_saddle_points):
+            print('Everybody panic!')
+
+        guess_times = self.guess_saddle_points
+        for t_re in t_recomb_list:
+            t_ion_saddle = self.find_saddle_times(guess_times, t_re)
+            guess_times = t_ion_saddle
+            res = 0
+            for t_ion in t_ion_saddle:
+                res += self.integrand_HHG(t_ion, t_re)
+            dipole_list.append(res)
+
+        dipole_list = np.array(dipole_list)
+        dipole_list = dipole_list + np.conj(dipole_list)
+        return t_recomb_list, dipole_list
+
 settings_dict = {
     'Ip': 0.5,              # Ionization potential (a.u.)
     'Wavelength': 800,      # (nm)
-    'Intensity': 1e14,      # (W/cm^2)
+    'Intensity': 3e14,      # (W/cm^2)
     'cep': np.pi/2,         # Carrier envelope phase
-    'N_cycles': 15,          # Nr of cycles
+    'N_cycles': 8,          # Nr of cycles
     'N_cores': 4,           # Nr. of cores to use in the multiprocessing calculations
     'SPA_time_integral': True
 }
@@ -258,8 +285,11 @@ filter_list = fft_omega >= 0
 fft_res = fft_res[filter_list]
 fft_omega = fft_omega[filter_list]
 
-plt.axvline(HHG.Ip + 3.17 * HHG.Up, ls='--', c='gray', alpha=0.3)
-plt.plot(fft_omega, fft_omega**2 * np.abs(fft_res)**2)
+plt.axvline((HHG.Ip + 3.17 * HHG.Up) / HHG.omega, ls='--', c='gray', alpha=0.3)
+plt.plot(fft_omega / HHG.omega, fft_omega**2 * np.abs(fft_res)**2)
+plt.xlabel(r'Harmonic order $\omega/\omega_L$')
+plt.ylabel(r'Yield (arb. units)')
 #plt.xlim(0,1.19)
 plt.yscale('log')
+plt.minorticks_on()
 plt.show()

@@ -5,7 +5,6 @@ Authors: Mads Carlsen & Emil Hansen
 # %% LIBRARIES
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_point_clicker import clicker
 from scipy.optimize import root
 from matplotlib.colors import LogNorm
 from scipy.integrate import quad
@@ -183,8 +182,8 @@ class AboveThresholdIonization:
             cg7 * cg11 + cg9) * cg7 / cg * np.cos(cg7 * cg11 / cg / 2) - 2 * np.sqrt(cg1) * (cg5 ** 2 + 1) ** (
                           -0.1e1 / 0.2e1) * np.sin(cg7 * cg11 / cg / 2) ** 2 * cg5 * cg7 * np.cos(cg7 * cg11 + cg9)
         return np.array([Efx, Efy, 0])
-
-
+        
+        
     def AI_sin2_ellip(self, t):
         """
         The integral of the A-field at a time t for elliptically polarized light propagating in the z-direction
@@ -297,8 +296,8 @@ class AboveThresholdIonization:
         :return: A(t) as a 3D numpy array
         """
         factor = np.sqrt(2 * self.Up) * np.sin(self.omega * t / (2 * self.N_cycles))**2
-        return factor * np.array([np.cos(self.omega * t), np.sin(self.omega * t), 0])
-
+        return factor * np.array([np.cos(self.omega * t + self.cep), np.sin(self.omega * t + self.cep), 0])
+    
     def E_field_sin2_circ(self, t):
         cg = self.N_cycles
         cg1 = self.Up
@@ -365,8 +364,8 @@ class AboveThresholdIonization:
         AI2 = cg1 * (cg * np.sin(0.1e1 / cg * cg5 * cg7) * (
                     np.cos(0.1e1 / cg * cg5 * cg7) - 4) + 3 * cg5 * cg7) / cg5 / 4
         return AI2
-
-
+    
+    
     def A_integrals(self, t, p_vec):
         """
         Calculation of the vector potential integrals needed in the action. Redirects for analytical calculation or
@@ -475,7 +474,7 @@ class AboveThresholdIonization:
         root_list = []
         for guess_time in guess_times:
             guess_i = np.array([guess_time.real, guess_time.imag])
-            sol = root(self.action_derivative_real_imag, guess_i, args=(p_vec,))
+            sol = root(self.action_derivative_real_imag, guess_i, args=(p_vec,), method='lm', tol=1e-12)
             tr = sol.x[0]
             ti = sol.x[1]
 
@@ -500,10 +499,12 @@ class AboveThresholdIonization:
         if saddle_times is not None:
             # Use the saddle-point approximation
             for ts in saddle_times:
-                vec1 = -(p_vec + self.A_field(ts))
+                vec1 = (p_vec + self.A_field(ts))
                 vec2 = self.E_field(ts)
                 vec3 = vec1 * vec2
-                action_double_derivative = np.dot(-(p_vec + self.A_field(ts)), self.E_field(ts)) # vec3[0] + vec3[1] + vec3[2] #
+                action_double_derivative = vec3[0] + vec3[1] + vec3[2] # np.dot(-(p_vec + self.A_field(ts)), self.E_field(ts))
+                if np.abs(action_double_derivative) < 1e-7 or np.imag(ts) > 100:
+                    continue
                 amplitude += np.sqrt(2*np.pi*1j/action_double_derivative) * np.exp(1j * self.action(ts, p_vec))
             return amplitude
         else:
@@ -563,71 +564,25 @@ class AboveThresholdIonization:
 
         # Now loop over all the py-'slices' and calculate transition amplitude for each, finding saddle times for each
         # Done using multiprocessing starmap to speed up calculations a bit
-        iter_param_list = [(edge_times_i, py_i) for edge_times_i, py_i in zip(edge_list, py_list)]
+        iter_param_list = [(edge_times_i, py_i) for edge_times_i, py_i in zip(edge_list,py_list)]
         with Pool(processes=4) as pool:
             pmd = pool.starmap(self.calculate_pmd_py_slice_SPA, iter_param_list)
         return np.array(pmd)
-
-    def ATI_spectrum(self, max_E, nr_energy_points, min_E=0):
-        E_list = np.linspace(min_E, max_E, nr_energy_points)
-        pass
-
-    def get_saddle_guess_at_momentum(self, p_vec):
-        p_init = np.array([self.px_start, self.py_start, self.pz])
-        saddle_guess = self.guess_saddle_points
-        dp = 0.1
-
-        temp_p = p_init.copy()
-        for i in range(3):
-            N_p = int(abs(p_vec[i] - p_init[i])/dp)
-            p_list = np.linspace(p_init[i], p_vec[i], N_p)
-
-            for pi in p_list[1:]:
-                temp_p[i] = pi
-                saddle_guess = self.find_saddle_times(saddle_guess, temp_p)
-        return saddle_guess
-
-    def ATI_angular_dist(self, N_phi, pz=0, N_cutoff=3, N_energy_trapz=100):
-        max_energy = N_cutoff * self.Up
-        phi_list = np.linspace(0, 2*np.pi, N_phi)
-        energy_list = np.linspace(0, max_energy, N_energy_trapz)
-        p_list = np.sqrt(2*energy_list)
-        res_list = []
-
-        center_saddle = self.get_saddle_guess_at_momentum([0,0,pz])
-
-        for phi in phi_list:
-            saddle_times = center_saddle.copy()
-
-            # Sample data for the energy integral
-            energy_int_list = []
-            for p in p_list:
-                # Find the momentum vector, the saddle times and the transition amplitude
-                p_vec = np.array([np.cos(phi) * p, np.sin(phi), pz])
-                saddle_times = self.find_saddle_times(saddle_times, p_vec)
-
-                amplitude = self.calculate_transition_amplitude(p_vec, saddle_times)
-                energy_int_list.append(np.abs(amplitude)**2)
-
-            # Calculate the integral
-            res_list.append(np.trapz(p_list**2 * energy_int_list, p_list))
-
-        return res_list, phi_list
 
 
 settings_dict = {
     'Ip': 0.5,              # Ionization potential (a.u.)
     'Wavelength': 800,      # (nm)
-    'Intensity': 1e14,      # (W/cm^2)
-    'cep': np.pi,         # Carrier envelope phase
-    'N_cycles': 2,          # Nr of cycles
-    'build_in_field': 'circular',   # Build in field type to use. If using other field methods leave as a empty string ''.
-    'px_start': -1.5, 'px_end': 1.5,  # Momentum bounds in x direction (a.u.)
-    'py_start': -1.5, 'py_end': 1.5,    # Momentum bounds in y direction (a.u.)
+    'Intensity': 3e14,      # (W/cm^2)
+    'cep': np.pi/2,         # Carrier envelope phase
+    'N_cycles': 4,          # Nr of cycles
+    'build_in_field': 'elliptic',   # Build in field type to use. If using other field methods leave as a empty string ''.
+    'px_start': -2, 'px_end': 2,  # Momentum bounds in x direction (a.u.)
+    'py_start': -2, 'py_end': 2,    # Momentum bounds in y direction (a.u.)
     'pz': 0.0,               # Momentum in z direction (a.u.)
-    'Nx': 125, 'Ny': 125,   # Grid resolution in the x and y direction
+    'Nx': 170, 'Ny': 170,   # Grid resolution in the x and y directions
     'N_cores': 4,           # Nr. of cores to use in the multiprocessing calculations
-    'ellipticity': None      # The ellipticity of the field. 0 is linear, 1 is circular  (only i)
+    'ellipticity': 1      # The ellipticity of the field. 0 is linear, 1 is circular  (only i)
 }
 
 if __name__ == "__main__":
@@ -635,20 +590,12 @@ if __name__ == "__main__":
     #print(ATI.AI2_sin2_ellip(1 + 1j))
     ATI.get_saddle_guess([0, ATI.N_cycles * 2*np.pi/ATI.omega], [0, 80], 400, 400)
     #np.save('test_saddle.txt', ATI.guess_saddle_points)
-    guess = np.load('test_saddle.txt.npy')
-    ATI.guess_saddle_points = guess
-
-    angle_spec, angle_list = ATI.ATI_angular_dist(200)
-
-    fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-    ax.plot(angle_list, angle_spec)
-    plt.show()
-
-    """
-    # PMD EXAMPLE
+    #guess = np.load('test_saddle.txt.npy')
+    #ATI.guess_saddle_points = guess
     PMD = ATI.calculate_pmd_SPA()
     M = np.abs(PMD)**2
-    plt.imshow(np.flip(M,0), norm=LogNorm(vmax=np.max(M), vmin=np.max(M)*1e-6), aspect='equal', extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
+    #plt.imshow(np.flip(M,0), norm=LogNorm(vmax=np.max(M), vmin=np.max(M)*1e-6), aspect='equal', extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
+    plt.imshow(M, aspect='equal', cmap='turbo', extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
     plt.colorbar()
     plt.show()
 
@@ -659,15 +606,16 @@ t_list = np.linspace(0, ATI.N_cycles * 2*np.pi/ATI.omega, 100)
 A_num_list = []
 for ti in t_list:
     trapz_list = np.linspace(0, ti, 1000)
-    As = [ATI.A_field(t)[1] for t in trapz_list]
+    #As = [ATI.A_field(t)[1] for t in trapz_list]
+    As = [ATI.A_field(t)[0]**2 + ATI.A_field(t)[1]**2 for t in trapz_list]
     A_num_list.append(np.trapz(As, trapz_list))
 
 
-plt.plot(t_list, [ATI.A_field_sin2(f)[0] for f in t_list])
-plt.plot(t_list, [ATI.A_field_sin2_ellip(f)[0] for f in t_list], color='r', ls='--')
-plt.show()
+'''plt.plot(t_list, A_num_list)
+plt.plot(t_list, [ATI.AI_sin2_circ(f)[0] for f in t_list], color='r', ls='--')
+plt.show()'''
 
-A_impl = [ATI.AI_sin2_ellip(t)[1] for t in t_list]
+A_impl = [ATI.AI2_sin2_circ(t) for t in t_list]
 print(A_impl)
 plt.plot(t_list, A_impl, label='Implementation')
 plt.plot(t_list, np.array(A_num_list), label='Numerical', ls='--')
