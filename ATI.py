@@ -22,10 +22,11 @@ class AboveThresholdIonization:
             self.Ip = 0.5
             self.set_field_params(lambd=800, intensity=1e14, cep=np.pi/2, N_cycles=2,
                                   ellipticity=None)
-            self.set_fields(build_in_field='sin2')  # Set the standard field type
+            self.set_fields(build_in_field='linear')  # Set the standard field type
             self.set_momentum_bounds(px_start=-1.5, px_end=1.5, py_start=0., py_end=1.5, pz=0., Nx=200, Ny=100)
             self.N_cores = 4
             self.ellipticity = 0
+            self.min_momentum = 0.1
         else:
             self.Ip = settings_dict['Ip']
             self.set_field_params(lambd=settings_dict['Wavelength'], intensity=settings_dict['Intensity'],
@@ -38,6 +39,7 @@ class AboveThresholdIonization:
                                      pz=settings_dict['pz'], Nx=settings_dict['Nx'], Ny=settings_dict['Ny'])
 
             self.N_cores = settings_dict['N_cores']
+            self.min_momentum = settings_dict['Minimum momentum']
 
         self.guess_saddle_points = []  # List to be filled with initial values for saddle point times
 
@@ -73,9 +75,10 @@ class AboveThresholdIonization:
         self.build_in = ''
         if build_in_field:
             self.build_in = build_in_field
-            if build_in_field == 'sin2':
-                self.A_field = self.A_field_sin2
-                self.E_field = self.E_field_sin2
+            if self.build_in == 'linear':
+                print('Using da linear')
+                self.A_field = self.A_field_sin2_linear
+                self.E_field = self.E_field_sin2_linear
             elif self.build_in == 'elliptic':
                 print('Using da elliptic')
                 self.A_field = self.A_field_sin2_ellip
@@ -109,14 +112,14 @@ class AboveThresholdIonization:
         self.Nx = Nx
         self.Ny = Ny
 
-    def A_field_sin2(self, t):
+    def A_field_sin2_linear(self, t):
         """
         Sin^2 field. One possible choice of 'build in' pulse forms. Uses the field parameters of the class.
         :param t: Time (a.u.)
         """
         return np.array([2 * self.rtUp * np.sin(self.omega * t / (2*self.N_cycles))**2 * np.cos(self.omega * t + self.cep), 0, 0])
 
-    def E_field_sin2(self, t):
+    def E_field_sin2_linear(self, t):
         """
         Electric field for the sin2 field.
         """
@@ -124,7 +127,7 @@ class AboveThresholdIonization:
         term2 = -np.sqrt(self.Up)/self.N_cycles * np.sin(self.omega*t/self.N_cycles) * np.cos(self.omega*t + self.cep)
         return np.array([self.omega * (term1 + term2), 0, 0])
 
-    def AI_sin2(s, t):
+    def AI_sin2_linear(s, t):
         """
         Integral of sin2 vector potential
         :param t: time
@@ -137,7 +140,7 @@ class AboveThresholdIonization:
                                         + s.N_cycles*(s.N_cycles-1)*np.sin((s.omega*t*(s.N_cycles+1) + s.cep*s.N_cycles)/s.N_cycles)
                                         - 2*s.N_cycles**2*np.sin(s.omega*t+s.cep) - 2*np.sin(s.cep) + 2*np.sin(s.omega*t+s.cep))
 
-    def AI2_sin2(s, t):
+    def AI2_sin2_linear(s, t):
         """
         Integral of sin2 vector potential squared
         :param t: time
@@ -386,8 +389,8 @@ class AboveThresholdIonization:
         :param t: time
         :param p_vec: momentum vector
         """
-        if self.build_in == 'sin2':
-            return p_vec[0]*self.AI_sin2(t) + self.AI2_sin2(t)/2
+        if self.build_in == 'linear':
+            return p_vec[0]*self.AI_sin2_linear(t) + self.AI2_sin2_linear(t)/2
         elif self.build_in == 'elliptic':
             #pA = p_vec * self.AI_sin2_ellip(t)
             AI = self.AI_sin2_ellip(t)
@@ -474,13 +477,15 @@ class AboveThresholdIonization:
         root_list = []
         for guess_time in guess_times:
             guess_i = np.array([guess_time.real, guess_time.imag])
-            sol = root(self.action_derivative_real_imag, guess_i, args=(p_vec,), method='lm', tol=1e-12)
+            sol = root(self.action_derivative_real_imag, guess_i, args=(p_vec,), tol=1e-8)
             tr = sol.x[0]
             ti = sol.x[1]
 
             # Restrict real part within first period
             if tr > self.period:
                 tr -= self.period
+            if tr < 0:
+                tr += self.period
 
             root_list.append(tr + 1j*ti)
         return root_list
@@ -499,12 +504,10 @@ class AboveThresholdIonization:
         if saddle_times is not None:
             # Use the saddle-point approximation
             for ts in saddle_times:
-                vec1 = (p_vec + self.A_field(ts))
-                vec2 = self.E_field(ts)
-                vec3 = vec1 * vec2
-                action_double_derivative = vec3[0] + vec3[1] + vec3[2] # np.dot(-(p_vec + self.A_field(ts)), self.E_field(ts))
-                if np.abs(action_double_derivative) < 1e-7 or np.imag(ts) > 100:
-                    continue
+                #vec1 = -(p_vec + self.A_field(ts))
+                #vec2 = self.E_field(ts)
+                #vec3 = vec1 * vec2
+                action_double_derivative = np.dot(-(p_vec + self.A_field(ts)), self.E_field(ts))
                 amplitude += np.sqrt(2*np.pi*1j/action_double_derivative) * np.exp(1j * self.action(ts, p_vec))
             return amplitude
         else:
@@ -523,14 +526,32 @@ class AboveThresholdIonization:
         pmd_slice = []
         guess_points = saddle_times_start
 
+        py_bool = abs(py) < self.min_momentum
+        saddle_bool = True
+        
         for i, px in enumerate(self.px_list):
             p_vec[0] = px
 
             # Obtain the saddle times if not the first px value (here they are already found)
             if i != 0:
-                saddle_points = self.find_saddle_times(guess_points, p_vec)
+                if self.build_in == 'circular':
+                    # Check if we are close to the center, and then skip the point entirely
+                    if py_bool and (abs(px) < self.min_momentum):
+                        saddle_bool = False
+                        pmd_slice.append(0.)
+                        continue 
+                    
+                if saddle_bool:
+                    # Standard case 
+                    saddle_points = self.find_saddle_times(guess_points, p_vec)
+                else: 
+                    # After passing the center, obtain saddle guess from new
+                    saddle_points = self.get_saddle_guess_at_momentum(p_vec)
+                    saddle_bool = True
+                
                 guess_points = saddle_points
             else:
+                # First px value, so we don't need to root find
                 saddle_points = guess_points
 
             # Calculate the transition amplitude for the momentum point
@@ -569,20 +590,102 @@ class AboveThresholdIonization:
             pmd = pool.starmap(self.calculate_pmd_py_slice_SPA, iter_param_list)
         return np.array(pmd)
 
+    def get_saddle_guess_at_momentum(self, p_vec):
+        p_init = np.array([self.px_start, self.py_start, self.pz])
+        saddle_guess = self.guess_saddle_points
+        dp = 0.1
+
+        temp_p = p_init.copy()
+        for i in range(3):
+            N_p = int(abs(p_vec[i] - p_init[i])/dp)
+            p_list = np.linspace(p_init[i], p_vec[i], N_p)
+
+            for pi in p_list[1:]:
+                temp_p[i] = pi
+                saddle_guess = self.find_saddle_times(saddle_guess, temp_p)
+        return saddle_guess
+
+    def ATI_angular_dist(self, N_phi, pz=0, energy_bounds_Up=(0,3), N_energy_trapz=100):
+        """
+        Calculates the angular distribution of the ATI using the saddle point approximation.
+        :param N_phi: Number of points to sample the angular distribution over
+        :param energy_bounds_Up: List of minimum and maximum energy to sample the energy integral over (in units of Up)
+        :param N_energy_trapz: Nr. of points to sample the energy integral over
+        """        
+        min_energy = energy_bounds_Up[0] * self.Up
+        max_energy = energy_bounds_Up[1] * self.Up
+        phi_list = np.linspace(0, 2*np.pi, N_phi)
+        energy_list = np.linspace(min_energy, max_energy, N_energy_trapz)
+        p_list = np.sqrt(2*energy_list)
+        res_list = []
+
+        start_times = self.get_saddle_guess_at_momentum([p_list[0], 0, pz])
+
+        for phi in phi_list:
+            px0 = np.cos(phi) * p_list[0]
+            py0 = np.sin(phi) * p_list[0]
+            start_times = self.find_saddle_times(start_times, np.array([px0, py0, pz]))
+            saddle_times = start_times.copy()
+
+            # Sample data for the energy integral
+            energy_int_list = []
+            for p in p_list:
+                # Find the momentum vector, the saddle times and the transition amplitude
+                p_vec = np.array([np.cos(phi) * p, np.sin(phi), pz])
+                saddle_times = self.find_saddle_times(saddle_times, p_vec)
+
+                amplitude = self.calculate_transition_amplitude(p_vec, saddle_times)
+                energy_int_list.append(np.abs(amplitude)**2)
+
+            # Calculate the integral
+            res_list.append(np.trapz(p_list**2 * energy_int_list, p_list))
+
+        return res_list, phi_list
+
+    def ATI_spectrum(self, energy_bounds_Up=(0,3), N_points=100, N_phi_samples=100):
+        """
+        Function for calculating the ATI spectrum using the saddle point approximation.
+        :param energy_bounds_Up: List of minimum and maximum energy to calculate for (in units of Up)
+        :param N_points: Number of points to sample the spectrum over
+        :param N_phi_samples: Number of points to sample the angular integral over
+        """
+        min_energy = energy_bounds_Up[0] * self.Up
+        max_energy = energy_bounds_Up[1] * self.Up
+        E_list = np.linspace(min_energy, max_energy, N_points)
+        p_list = np.sqrt(2*E_list)
+        phi_list = np.linspace(0, 2*np.pi, N_phi_samples)
+
+        # Get the saddle points at the lowest energy
+        saddle_times = self.get_saddle_guess_at_momentum([p_list[0], 0, self.pz])
+
+        # Calculate the phi integrals
+        res = []
+        for pi in p_list:
+            energy_angle_int_list = []
+            for phi_i in phi_list:
+                p_vec = np.array([np.cos(phi_i)*pi, np.sin(phi_i)*pi, self.pz])
+                saddle_times = self.find_saddle_times(saddle_times, p_vec)
+
+                amplitude = self.calculate_transition_amplitude(p_vec, saddle_times)
+                energy_angle_int_list.append(np.abs(amplitude) ** 2 * pi**2/2)
+            res.append(np.trapz(energy_angle_int_list, phi_list))
+        return res, E_list
+
 
 settings_dict = {
     'Ip': 0.5,              # Ionization potential (a.u.)
     'Wavelength': 800,      # (nm)
-    'Intensity': 3e14,      # (W/cm^2)
+    'Intensity': 1e14,      # (W/cm^2)
     'cep': np.pi/2,         # Carrier envelope phase
-    'N_cycles': 4,          # Nr of cycles
-    'build_in_field': 'elliptic',   # Build in field type to use. If using other field methods leave as a empty string ''.
-    'px_start': -2, 'px_end': 2,  # Momentum bounds in x direction (a.u.)
-    'py_start': -2, 'py_end': 2,    # Momentum bounds in y direction (a.u.)
+    'N_cycles': 2,          # Nr of cycles
+    'build_in_field': 'circular',   # Build in field type to use. If using other field methods leave as a empty string ''.
+    'px_start': -1.5, 'px_end': 1.5,  # Momentum bounds in x direction (a.u.)
+    'py_start': -1.5, 'py_end': 1.5,    # Momentum bounds in y direction (a.u.)
     'pz': 0.0,               # Momentum in z direction (a.u.)
-    'Nx': 170, 'Ny': 170,   # Grid resolution in the x and y directions
+    'Nx': 175, 'Ny': 175,   # Grid resolution in the x and y directions
     'N_cores': 4,           # Nr. of cores to use in the multiprocessing calculations
-    'ellipticity': 1      # The ellipticity of the field. 0 is linear, 1 is circular  (only i)
+    'ellipticity': None,      # The ellipticity of the field. 0 is linear, 1 is circular  (only i)
+    'Minimum momentum': 0.1, # Minimum abs momentum to use in the saddle point calculations for cirular field
 }
 
 if __name__ == "__main__":
@@ -592,33 +695,32 @@ if __name__ == "__main__":
     #np.save('test_saddle.txt', ATI.guess_saddle_points)
     #guess = np.load('test_saddle.txt.npy')
     #ATI.guess_saddle_points = guess
+
+    """
+    res, angles = ATI.ATI_angular_dist(100, energy_bounds_Up=(0.02, 3))
+    fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+    ax.plot(angles, res)
+    plt.show()
+    """
+
+    #res, E_list = ATI.ATI_spectrum(energy_bounds_Up=(0.0, 3), N_points=200)
+    #plt.plot(E_list, res)
+    #plt.show()
+
+    #"""
     PMD = ATI.calculate_pmd_SPA()
     M = np.abs(PMD)**2
-    #plt.imshow(np.flip(M,0), norm=LogNorm(vmax=np.max(M), vmin=np.max(M)*1e-6), aspect='equal', extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
-    plt.imshow(M, aspect='equal', cmap='turbo', extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
+    M = M / np.max(M)
+    cmap = 'viridis'
+    min_val = np.max(M) * 1e-4
+
+    #filter_arr = M < min_val
+    #M[filter_arr] = min_val  # Clean up so plot looks better
+
+    plt.imshow(np.flip(M,0), norm=LogNorm(vmax=1, vmin=min_val), aspect='equal', cmap=cmap, extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
+    #plt.imshow(np.flip(M,0), aspect='equal', cmap=cmap, extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
     plt.colorbar()
     plt.show()
+    #"""
 
-
-
-# Test integrals of A
-t_list = np.linspace(0, ATI.N_cycles * 2*np.pi/ATI.omega, 100)
-A_num_list = []
-for ti in t_list:
-    trapz_list = np.linspace(0, ti, 1000)
-    #As = [ATI.A_field(t)[1] for t in trapz_list]
-    As = [ATI.A_field(t)[0]**2 + ATI.A_field(t)[1]**2 for t in trapz_list]
-    A_num_list.append(np.trapz(As, trapz_list))
-
-
-'''plt.plot(t_list, A_num_list)
-plt.plot(t_list, [ATI.AI_sin2_circ(f)[0] for f in t_list], color='r', ls='--')
-plt.show()'''
-
-A_impl = [ATI.AI2_sin2_circ(t) for t in t_list]
-print(A_impl)
-plt.plot(t_list, A_impl, label='Implementation')
-plt.plot(t_list, np.array(A_num_list), label='Numerical', ls='--')
-plt.legend(frameon=False)
-plt.minorticks_on()
-plt.show()
+   
