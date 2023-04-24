@@ -9,6 +9,7 @@ from scipy.optimize import root
 from matplotlib.colors import LogNorm
 from scipy.integrate import quad
 from multiprocessing import Pool
+from scipy.special import gamma, binom
 
 
 # %% ATI CLASS
@@ -76,11 +77,9 @@ class AboveThresholdIonization:
         if build_in_field:
             self.build_in = build_in_field
             if self.build_in == 'linear':
-                print('Using da linear')
                 self.A_field = self.A_field_sin2_linear
                 self.E_field = self.E_field_sin2_linear
             elif self.build_in == 'elliptic':
-                print('Using da elliptic')
                 self.A_field = self.A_field_sin2_ellip
                 self.E_field = self.E_field_sin2_ellip
             elif self.build_in == 'circular':
@@ -560,7 +559,7 @@ class AboveThresholdIonization:
 
         return pmd_slice
 
-    def calculate_pmd_SPA(self):
+    def calculate_PMD(self):
         """
         Function to calculate the photoelectron momentum distribution using the saddle point approximation (SPA)
         for the momentum grid over px, py.
@@ -671,14 +670,61 @@ class AboveThresholdIonization:
             res.append(np.trapz(energy_angle_int_list, phi_list))
         return res, E_list
 
+    def asymptotic_matrix_element(self, p_vec, ts): 
+        kappa = np.sqrt(2*self.Ip)
+        nu = 1/kappa 
 
-settings_dict = {
+        p_tilde_vec = p_vec + self.A_field(ts)
+        p_tilde = (p_tilde_vec[0]**2 + p_tilde_vec[1]**2 + p_tilde_vec[2]**2)**0.5
+
+        action_double_derivative = np.dot(-(p_vec + self.A_field(ts)), self.E_field(ts))
+        front_fac = gamma(nu/2 + 1)/np.sqrt(np.pi) * kappa**(nu+1) * action_double_derivative**(-nu/2-1) * 1j**(nu/2+1) * 2**(nu/2-0.5) 
+        # TODO continue this function
+
+
+    # Functions for the GTO bound state matrix element, using Hermite polynomials
+    def hermite_poly(self, n, z):
+        if n == 0:
+            return 1.
+        elif n == 1:
+            return 2. * z
+        elif n == 2:
+            return 4. * z ** 2 - 2.
+        elif n == 3:
+            return 8 * z ** 3 - 12. * z
+        elif n == 4:
+            return 16. * z ** 4 - 48. * z ** 2 + 12.
+        elif n == 5:
+            return 32. * z ** 5 - 160. * z ** 3 + 120. * z
+        else:
+            print('Too high n: not implemented')
+            return 0.0
+        
+    def di_gto(self, p_vec, ts, front_factor, alpha, i, j, k, xa, ya, za):
+        """ Bound state prefactor d(p,t)=<p+A|H|0> in the LG using LCAO and GTOs from GAMESS coefficients """
+        pz = p_vec[0] + self.A_field(ts)[0]
+        py = p_vec[1] 
+        px = p_vec[2]
+
+        result = 2. ** (-(i + j + k) - 3. / 2) * alpha ** (-(i + j + k) / 2. - 3. / 2) \
+                                     * np.exp(-1j * (px * xa + py * ya + pz * za)) \
+                                     * np.exp(-(px ** 2 + py ** 2 + pz ** 2) / (4. * alpha)) \
+                                     * np.exp(-1.j * np.pi * (i + j + k) / 2.) * self.E_field(ts)[0] \
+                                     * self.hermite_poly(i, px / (2. * np.sqrt(alpha))) \
+                                     * self.hermite_poly(j, py / (2. * np.sqrt(alpha))) \
+                                     * (za * self.hermite_poly(k, pz / (2. * np.sqrt(alpha))) -
+                                        1.j / (2. * np.sqrt(alpha)) * self.hermite_poly(k + 1, pz / (2. * np.sqrt(alpha))))
+        return front_factor * result
+
+
+if __name__ == "__main__":
+    settings_dict = {
     'Ip': 0.5,              # Ionization potential (a.u.)
     'Wavelength': 800,      # (nm)
     'Intensity': 1e14,      # (W/cm^2)
     'cep': np.pi/2,         # Carrier envelope phase
     'N_cycles': 2,          # Nr of cycles
-    'build_in_field': 'circular',   # Build in field type to use. If using other field methods leave as a empty string ''.
+    'build_in_field': 'linear',   # Build in field type to use. If using other field methods leave as a empty string ''.
     'px_start': -1.5, 'px_end': 1.5,  # Momentum bounds in x direction (a.u.)
     'py_start': -1.5, 'py_end': 1.5,    # Momentum bounds in y direction (a.u.)
     'pz': 0.0,               # Momentum in z direction (a.u.)
@@ -687,40 +733,26 @@ settings_dict = {
     'ellipticity': None,      # The ellipticity of the field. 0 is linear, 1 is circular  (only i)
     'Minimum momentum': 0.1, # Minimum abs momentum to use in the saddle point calculations for cirular field
 }
-
-if __name__ == "__main__":
+    
     ATI = AboveThresholdIonization(settings_dict=settings_dict)
-    #print(ATI.AI2_sin2_ellip(1 + 1j))
     ATI.get_saddle_guess([0, ATI.N_cycles * 2*np.pi/ATI.omega], [0, 80], 400, 400)
     #np.save('test_saddle.txt', ATI.guess_saddle_points)
     #guess = np.load('test_saddle.txt.npy')
     #ATI.guess_saddle_points = guess
 
-    """
-    res, angles = ATI.ATI_angular_dist(100, energy_bounds_Up=(0.02, 3))
-    fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-    ax.plot(angles, res)
-    plt.show()
-    """
-
-    #res, E_list = ATI.ATI_spectrum(energy_bounds_Up=(0.0, 3), N_points=200)
-    #plt.plot(E_list, res)
-    #plt.show()
-
-    #"""
-    PMD = ATI.calculate_pmd_SPA()
+    PMD = ATI.calculate_PMD()
     M = np.abs(PMD)**2
     M = M / np.max(M)
     cmap = 'viridis'
     min_val = np.max(M) * 1e-4
 
-    #filter_arr = M < min_val
-    #M[filter_arr] = min_val  # Clean up so plot looks better
+    filter_arr = M < min_val
+    M[filter_arr] = min_val  # Clean up so plot looks better
 
     plt.imshow(np.flip(M,0), norm=LogNorm(vmax=1, vmin=min_val), aspect='equal', cmap=cmap, extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
     #plt.imshow(np.flip(M,0), aspect='equal', cmap=cmap, extent=(ATI.px_start, ATI.px_end, ATI.py_start, ATI.py_end), interpolation='bicubic')
     plt.colorbar()
     plt.show()
-    #"""
 
-   
+
+  
