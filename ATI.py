@@ -86,6 +86,9 @@ class AboveThresholdIonization:
                 self.A_field = self.A_field_sin2_circ
                 self.E_field = self.E_field_sin2_circ
                 # More build-in fields can be added here:
+            elif self.build_in == 'bicircular':
+                self.A_field = self.A_bicircular
+                self.E_field = self.E_bicircular 
             else:
                 raise Exception('The build-in field specified does not exist!')
 
@@ -366,6 +369,41 @@ class AboveThresholdIonization:
         AI2 = cg1 * (cg * np.sin(0.1e1 / cg * cg5 * cg7) * (
                     np.cos(0.1e1 / cg * cg5 * cg7) - 4) + 3 * cg5 * cg7) / cg5 / 4
         return AI2
+
+    
+    def A_bicircular(self, t):
+        envelope = np.sin(self.omega*t/(2*self.N_cycles))**2
+        prefactor = np.sqrt(2*self.Up)
+        A1 = np.array([np.cos(self.omega*t + self.cep), np.sin(self.omega*t + self.cep), 0])
+        A2 = np.array([np.cos(2*self.omega*t + self.cep), -np.sin(2*self.omega*t + self.cep), 0])
+        return prefactor * (A1 + A2) * envelope
+
+    def E_bicircular(self, t):
+        cg = self.N_cycles
+        cg1 = self.Up
+        cg5 = self.omega
+        cg7 = self.cep
+        cg9 = t
+        cg3 = np.array([-np.sqrt(2) * (np.sqrt(2) * np.sqrt(cg1) * np.sin(cg5 * cg9 / cg / 2) * np.cos(cg5 * cg9 + cg7) * cg5 / cg * np.cos(cg5 * cg9 / cg / 2) - np.sqrt(2) * np.sqrt(cg1) * np.sin(cg5 * cg9 / cg / 2) ** 2 * cg5 * np.sin(cg5 * cg9 + cg7) + np.sqrt(2) * np.sqrt(cg1) * np.sin(cg5 * cg9 / cg / 2) * np.cos(2 * cg5 * cg9 + cg7) * cg5 / cg * np.cos(cg5 * cg9 / cg / 2) - 2 * np.sqrt(2) * np.sqrt(cg1) * np.sin(cg5 * cg9 / cg / 2) ** 2 * cg5 * np.sin(2 * cg5 * cg9 + cg7)) / 2,-np.sqrt(2) * (np.sqrt(2) * np.sqrt(cg1) * np.sin(cg5 * cg9 / cg / 2) * np.sin(cg5 * cg9 + cg7) * cg5 / cg * np.cos(cg5 * cg9 / cg / 2) + np.sqrt(2) * np.sqrt(cg1) * np.sin(cg5 * cg9 / cg / 2) ** 2 * cg5 * np.cos(cg5 * cg9 + cg7) - np.sqrt(2) * np.sqrt(cg1) * np.sin(cg5 * cg9 / cg / 2) * np.sin(2 * cg5 * cg9 + cg7) * cg5 / cg * np.cos(cg5 * cg9 / cg / 2) - 2 * np.sqrt(2) * np.sqrt(cg1) * np.sin(cg5 * cg9 / cg / 2) ** 2 * cg5 * np.cos(2 * cg5 * cg9 + cg7)) / 2, 0])
+        return cg3
+
+    def AI_bicircular(self, t):
+        cg = self.N_cycles
+        cg1 = self.Up
+        cg5 = self.omega
+        cg7 = self.cep
+        cg9 = t
+        cg3 = np.array([-np.sqrt(cg1) * (-np.sin(cg7) * np.cos(cg5 * cg9) ** 2 - np.sin(cg5 * cg9) * np.cos(cg7) - np.cos(cg5 * cg9) * np.sin(cg7) - cg * np.sin(cg5 * cg9) * np.sin(cg7) * np.sin(cg5 * cg9 / cg) + cg * np.cos(cg5 * cg9) * np.cos(cg7) * np.sin(cg5 * cg9 / cg) + 2 * cg * np.cos(cg5 * cg9) ** 2 * np.cos(cg7) * np.sin(cg5 * cg9 / cg) + 4 * cg ** 4 * np.sin(cg5 * cg9) * np.cos(cg7) * np.cos(cg5 * cg9 / cg) + 4 * cg ** 4 * np.cos(cg5 * cg9) * np.sin(cg7) * np.cos(cg5 * cg9 / cg) + 4 * cg ** 4 * np.cos(cg5 * cg9) ** 2 * np.sin(cg7) * np.cos(cg5 * cg9 / cg) - 4 * cg ** 4 * np.cos(cg7) * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) + 4 * cg ** 3 * np.sin(cg5 * cg9) * np.sin(cg7) * np.sin(cg5 * cg9 / cg) - 4 * cg ** 3 * np.cos(cg5 * cg9) * np.cos(cg7) * np.sin(cg5 * cg9 / cg) - 2 * cg ** 3 * np.cos(cg5 * cg9) ** 2 * np.cos(cg7) * np.sin(cg5 * cg9 / cg) - cg ** 2 * np.sin(cg5 * cg9) * np.cos(cg7) * np.cos(cg5 * cg9 / cg) - cg ** 2 * np.cos(cg5 * cg9) * np.sin(cg7) * np.cos(cg5 * cg9 / cg) - 4 * cg ** 2 * np.cos(cg5 * cg9) ** 2 * np.sin(cg7) * np.cos(cg5 * cg9 / cg) + 5 * cg ** 2 * np.cos(cg7) * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) + 5 * cg ** 2 * np.sin(cg5 * cg9) * np.cos(cg7) + 5 * cg ** 2 * np.cos(cg5 * cg9) * np.sin(cg7) + 5 * cg ** 2 * np.sin(cg7) * np.cos(cg5 * cg9) ** 2 - cg * np.cos(cg7) * np.sin(cg5 * cg9 / cg) - 2 * cg ** 4 * np.sin(cg7) * np.cos(cg5 * cg9 / cg) - np.cos(cg7) * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) - 4 * cg ** 4 * np.sin(cg5 * cg9) * np.cos(cg7) - 4 * cg ** 4 * np.cos(cg5 * cg9) * np.sin(cg7) - 4 * cg ** 4 * np.sin(cg7) * np.cos(cg5 * cg9) ** 2 + cg ** 3 * np.cos(cg7) * np.sin(cg5 * cg9 / cg) + 2 * cg ** 2 * np.sin(cg7) * np.cos(cg5 * cg9 / cg) + 4 * cg ** 4 * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) * np.cos(cg7) * np.cos(cg5 * cg9 / cg) + 2 * cg ** 3 * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) * np.sin(cg7) * np.sin(cg5 * cg9 / cg) - 4 * cg ** 2 * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) * np.cos(cg7) * np.cos(cg5 * cg9 / cg) - 2 * cg * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) * np.sin(cg7) * np.sin(cg5 * cg9 / cg) - 7 * cg ** 2 * np.sin(cg7) + 2 * cg ** 4 * np.sin(cg7) + 2 * np.sin(cg7)) / cg5 / (4 * cg ** 4 - 5 * cg ** 2 + 1) / 2,-np.sqrt(cg1) * (2 * cg ** 4 * np.cos(cg7) + cg ** 2 * np.cos(cg7) - 4 * cg ** 4 * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) * np.sin(cg7) * np.cos(cg5 * cg9 / cg) + 2 * cg ** 3 * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) * np.cos(cg7) * np.sin(cg5 * cg9 / cg) + 4 * cg ** 2 * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) * np.sin(cg7) * np.cos(cg5 * cg9 / cg) - 2 * cg * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) * np.cos(cg7) * np.sin(cg5 * cg9 / cg) - 4 * cg ** 4 * np.cos(cg5 * cg9) * np.cos(cg7) * np.cos(cg5 * cg9 / cg) + 4 * cg ** 4 * np.sin(cg5 * cg9) * np.sin(cg7) * np.cos(cg5 * cg9 / cg) + 4 * cg ** 4 * np.cos(cg5 * cg9) ** 2 * np.cos(cg7) * np.cos(cg5 * cg9 / cg) + 4 * cg ** 4 * np.sin(cg7) * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) - 4 * cg ** 3 * np.cos(cg5 * cg9) * np.sin(cg7) * np.sin(cg5 * cg9 / cg) - 4 * cg ** 3 * np.sin(cg5 * cg9) * np.cos(cg7) * np.sin(cg5 * cg9 / cg) + 2 * cg ** 3 * np.cos(cg5 * cg9) ** 2 * np.sin(cg7) * np.sin(cg5 * cg9 / cg) + cg ** 2 * np.cos(cg5 * cg9) * np.cos(cg7) * np.cos(cg5 * cg9 / cg) - cg ** 2 * np.sin(cg5 * cg9) * np.sin(cg7) * np.cos(cg5 * cg9 / cg) - 4 * cg ** 2 * np.cos(cg5 * cg9) ** 2 * np.cos(cg7) * np.cos(cg5 * cg9 / cg) - 5 * cg ** 2 * np.sin(cg7) * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) + cg * np.cos(cg5 * cg9) * np.sin(cg7) * np.sin(cg5 * cg9 / cg) + cg * np.sin(cg5 * cg9) * np.cos(cg7) * np.sin(cg5 * cg9 / cg) - 2 * cg * np.cos(cg5 * cg9) ** 2 * np.sin(cg7) * np.sin(cg5 * cg9 / cg) - np.cos(cg7) * np.cos(cg5 * cg9) ** 2 + np.cos(cg5 * cg9) * np.cos(cg7) - np.sin(cg5 * cg9) * np.sin(cg7) + np.sin(cg7) * np.sin(cg5 * cg9) * np.cos(cg5 * cg9) - 2 * cg ** 4 * np.cos(cg7) * np.cos(cg5 * cg9 / cg) + 4 * cg ** 4 * np.cos(cg5 * cg9) * np.cos(cg7) - 4 * cg ** 4 * np.sin(cg5 * cg9) * np.sin(cg7) - 4 * cg ** 4 * np.cos(cg7) * np.cos(cg5 * cg9) ** 2 - cg ** 3 * np.sin(cg7) * np.sin(cg5 * cg9 / cg) + 2 * cg ** 2 * np.cos(cg7) * np.cos(cg5 * cg9 / cg) - 5 * cg ** 2 * np.cos(cg5 * cg9) * np.cos(cg7) + 5 * cg ** 2 * np.sin(cg5 * cg9) * np.sin(cg7) + 5 * cg ** 2 * np.cos(cg7) * np.cos(cg5 * cg9) ** 2 + cg * np.sin(cg7) * np.sin(cg5 * cg9 / cg)) / cg5 / (4 * cg ** 4 - 5 * cg ** 2 + 1) / 2, 0])
+        return cg3
+
+    def AI2_bicircular(self, t):
+        cg = self.N_cycles
+        cg1 = self.Up
+        cg3 = self.omega
+        cg5 = self.cep
+        cg7 = t
+        cg2 = cg1 * (288 * cg ** 3 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.sin(cg5) * np.cos(cg5) * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) - 32 * cg * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.sin(cg5) * np.cos(cg5) * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) + 12 * cg3 * cg7 - 48 * cg ** 2 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.cos(cg5) ** 2 * np.cos(cg3 * cg7 / cg) ** 2 - 48 * cg ** 2 * np.cos(cg3 * cg7) ** 3 * np.sin(cg5) * np.cos(cg5) * np.cos(cg3 * cg7 / cg) ** 2 + 36 * cg ** 2 * np.cos(cg3 * cg7) * np.sin(cg5) * np.cos(cg5) * np.cos(cg3 * cg7 / cg) ** 2 + 384 * cg ** 2 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.cos(cg3 * cg7 / cg) * np.cos(cg5) ** 2 + 384 * cg ** 2 * np.cos(cg3 * cg7) ** 3 * np.cos(cg3 * cg7 / cg) * np.sin(cg5) * np.cos(cg5) - 288 * cg ** 2 * np.cos(cg3 * cg7) * np.cos(cg3 * cg7 / cg) * np.sin(cg5) * np.cos(cg5) + 32 * cg * np.cos(cg3 * cg7) ** 3 * np.cos(cg5) ** 2 * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) - 24 * cg * np.cos(cg3 * cg7) * np.cos(cg5) ** 2 * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) - 32 * cg * np.sin(cg3 * cg7) * np.sin(cg3 * cg7 / cg) * np.sin(cg5) * np.cos(cg5) + 432 * cg ** 4 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.cos(cg5) ** 2 * np.cos(cg3 * cg7 / cg) ** 2 + 432 * cg ** 4 * np.cos(cg3 * cg7) ** 3 * np.sin(cg5) * np.cos(cg5) * np.cos(cg3 * cg7 / cg) ** 2 - 324 * cg ** 4 * np.cos(cg3 * cg7) * np.sin(cg5) * np.cos(cg5) * np.cos(cg3 * cg7 / cg) ** 2 - 864 * cg ** 4 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.cos(cg3 * cg7 / cg) * np.cos(cg5) ** 2 - 864 * cg ** 4 * np.cos(cg3 * cg7) ** 3 * np.cos(cg3 * cg7 / cg) * np.sin(cg5) * np.cos(cg5) + 648 * cg ** 4 * np.cos(cg3 * cg7) * np.cos(cg3 * cg7 / cg) * np.sin(cg5) * np.cos(cg5) - 288 * cg ** 3 * np.cos(cg3 * cg7) ** 3 * np.cos(cg5) ** 2 * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) + 216 * cg ** 3 * np.cos(cg3 * cg7) * np.cos(cg5) ** 2 * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) + 72 * cg ** 3 * np.sin(cg3 * cg7) * np.sin(cg3 * cg7 / cg) * np.sin(cg5) * np.cos(cg5) - 8 * np.sin(cg5) * np.cos(cg5) - 72 * cg ** 3 * np.sin(cg3 * cg7) * np.sin(cg5) * np.cos(cg5) * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) - 288 * cg ** 3 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.sin(cg3 * cg7 / cg) * np.sin(cg5) * np.cos(cg5) + 8 * cg * np.sin(cg3 * cg7) * np.sin(cg5) * np.cos(cg5) * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) + 128 * cg * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.sin(cg3 * cg7 / cg) * np.sin(cg5) * np.cos(cg5) + 180 * cg ** 3 * np.sin(cg3 * cg7 / cg) - 16 * cg * np.sin(cg3 * cg7 / cg) - 16 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 - 8 * np.sin(cg3 * cg7) * np.cos(cg5) ** 2 - 324 * cg ** 5 * np.sin(cg3 * cg7 / cg) + 54 * cg ** 4 * np.sin(cg3 * cg7) - 42 * cg ** 2 * np.sin(cg3 * cg7) + 64 * cg * np.cos(cg3 * cg7) ** 3 * np.sin(cg3 * cg7 / cg) - 48 * cg * np.cos(cg3 * cg7) * np.sin(cg3 * cg7 / cg) - 45 * cg ** 3 * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) + 4 * cg * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) + 81 * cg ** 5 * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) - 144 * cg ** 3 * np.cos(cg3 * cg7) ** 3 * np.sin(cg3 * cg7 / cg) + 108 * cg ** 3 * np.cos(cg3 * cg7) * np.sin(cg3 * cg7 / cg) - 6 * cg ** 2 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7 / cg) ** 2 + 168 * cg ** 2 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 + 84 * cg ** 2 * np.sin(cg3 * cg7) * np.cos(cg5) ** 2 + 48 * cg ** 2 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7 / cg) + 54 * cg ** 4 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7 / cg) ** 2 - 216 * cg ** 4 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 - 108 * cg ** 4 * np.sin(cg3 * cg7) * np.cos(cg5) ** 2 - 108 * cg ** 4 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7 / cg) + 32 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.cos(cg5) ** 2 + 32 * np.cos(cg3 * cg7) ** 3 * np.sin(cg5) * np.cos(cg5) - 24 * np.cos(cg3 * cg7) * np.sin(cg5) * np.cos(cg5) + 243 * cg ** 4 * cg3 * cg7 - 135 * cg ** 2 * cg3 * cg7 + 4 * np.sin(cg3 * cg7) - 192 * cg ** 2 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.cos(cg3 * cg7 / cg) - 96 * cg ** 2 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7 / cg) * np.cos(cg5) ** 2 - 16 * cg * np.cos(cg3 * cg7) ** 3 * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) + 12 * cg * np.cos(cg3 * cg7) * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) - 128 * cg * np.cos(cg3 * cg7) ** 3 * np.sin(cg3 * cg7 / cg) * np.cos(cg5) ** 2 + 96 * cg * np.cos(cg3 * cg7) * np.sin(cg3 * cg7 / cg) * np.cos(cg5) ** 2 + 432 * cg ** 4 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.cos(cg3 * cg7 / cg) + 216 * cg ** 4 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7 / cg) * np.cos(cg5) ** 2 + 144 * cg ** 3 * np.cos(cg3 * cg7) ** 3 * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) - 108 * cg ** 3 * np.cos(cg3 * cg7) * np.sin(cg3 * cg7 / cg) * np.cos(cg3 * cg7 / cg) + 288 * cg ** 3 * np.cos(cg3 * cg7) ** 3 * np.sin(cg3 * cg7 / cg) * np.cos(cg5) ** 2 - 216 * cg ** 3 * np.cos(cg3 * cg7) * np.sin(cg3 * cg7 / cg) * np.cos(cg5) ** 2 + 24 * cg ** 2 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.cos(cg3 * cg7 / cg) ** 2 + 12 * cg ** 2 * np.sin(cg3 * cg7) * np.cos(cg5) ** 2 * np.cos(cg3 * cg7 / cg) ** 2 - 336 * cg ** 2 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.cos(cg5) ** 2 - 336 * cg ** 2 * np.cos(cg3 * cg7) ** 3 * np.sin(cg5) * np.cos(cg5) + 252 * cg ** 2 * np.cos(cg3 * cg7) * np.sin(cg5) * np.cos(cg5) - 216 * cg ** 4 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.cos(cg3 * cg7 / cg) ** 2 - 108 * cg ** 4 * np.sin(cg3 * cg7) * np.cos(cg5) ** 2 * np.cos(cg3 * cg7 / cg) ** 2 + 432 * cg ** 4 * np.sin(cg3 * cg7) * np.cos(cg3 * cg7) ** 2 * np.cos(cg5) ** 2 + 432 * cg ** 4 * np.cos(cg3 * cg7) ** 3 * np.sin(cg5) * np.cos(cg5) - 324 * cg ** 4 * np.cos(cg3 * cg7) * np.sin(cg5) * np.cos(cg5)) / cg3 / (81 * cg ** 4 - 45 * cg ** 2 + 4) / 4
+        return cg2
     
     
     def A_integrals(self, t, p_vec):
@@ -397,6 +435,9 @@ class AboveThresholdIonization:
         elif self.build_in == 'circular':
             pA = p_vec * self.AI_sin2_circ(t)
             return pA[0] + pA[1] + pA[2] + self.AI2_sin2_circ(t)/2
+        elif self.build_in == 'bicircular':
+            AI = self.AI_bicircular(t)
+            return p_vec[0]*AI[0] + p_vec[1]*AI[1] + p_vec[2]*AI[2] + self.AI2_bicircular(t)/2
         # One can add additional field types here
         else:
             raise Exception("Analytical integrals for this field type does not exist!")
@@ -721,14 +762,14 @@ if __name__ == "__main__":
     settings_dict = {
     'Ip': 0.5,              # Ionization potential (a.u.)
     'Wavelength': 800,      # (nm)
-    'Intensity': 1e14,      # (W/cm^2)
+    'Intensity': 0.5e14,      # (W/cm^2)
     'cep': np.pi/2,         # Carrier envelope phase
     'N_cycles': 2,          # Nr of cycles
-    'build_in_field': 'linear',   # Build in field type to use. If using other field methods leave as a empty string ''.
+    'build_in_field': 'bicircular',   # Build in field type to use. If using other field methods leave as a empty string ''.
     'px_start': -1.5, 'px_end': 1.5,  # Momentum bounds in x direction (a.u.)
     'py_start': -1.5, 'py_end': 1.5,    # Momentum bounds in y direction (a.u.)
     'pz': 0.0,               # Momentum in z direction (a.u.)
-    'Nx': 175, 'Ny': 175,   # Grid resolution in the x and y directions
+    'Nx': 100, 'Ny': 100,   # Grid resolution in the x and y directions
     'N_cores': 4,           # Nr. of cores to use in the multiprocessing calculations
     'ellipticity': None,      # The ellipticity of the field. 0 is linear, 1 is circular  (only i)
     'Minimum momentum': 0.1, # Minimum abs momentum to use in the saddle point calculations for cirular field
