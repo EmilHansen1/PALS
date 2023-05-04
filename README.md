@@ -73,6 +73,7 @@ The required packages are the standard ones used in the Python scientific commun
  - Matplotlib
  - Scipy
  - Jupyter Notebook (for viewing the examples)
+ - PyQt5 (or similar)
  
  These are most easily installed using pip.
 

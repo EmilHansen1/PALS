@@ -333,7 +333,7 @@ class HighHarmonicGeneration:
         # things will start looking not all right.
         t_lst = rec_times[::N_every]
         d_acc = dipole_acceleration[::N_every]
-        w_lst = np.linspace(0, max_harmonic_order*HHG.omega, N_omega)
+        w_lst = np.linspace(0, max_harmonic_order*self.omega, N_omega)
 
         # Calculate the spectrogram as entries of a matrix
         G_spec = np.zeros((len(t_lst), len(w_lst)), dtype=complex)
@@ -355,55 +355,56 @@ settings_dict = {
     'SPA_time_integral': True
 }
 
-HHG = HighHarmonicGeneration(settings_dict)
-#HHG.get_saddle_guess([0, HHG.period], [0, 80], 400, 400)
-#np.save('test_guess', HHG.guess_saddle_points)
-HHG.guess_saddle_points = np.load('test_guess.npy')
+if __name__ == '__main__':
+    HHG = HighHarmonicGeneration(settings_dict)
+    #HHG.get_saddle_guess([0, HHG.period], [0, 80], 400, 400)
+    #np.save('test_guess', HHG.guess_saddle_points)
+    HHG.guess_saddle_points = np.load('test_guess.npy')
 
-print('Cutoff: ', HHG.Ip + 3.17*HHG.Up)
+    print('Cutoff: ', HHG.Ip + 3.17*HHG.Up)
 
-fft_res, fft_omega = HHG.calculate_HHG_spectrum()
-filter_list = fft_omega >= 0
-fft_res = fft_res[filter_list]
-fft_omega = fft_omega[filter_list]
+    fft_res, fft_omega = HHG.calculate_HHG_spectrum()
+    filter_list = fft_omega >= 0
+    fft_res = fft_res[filter_list]
+    fft_omega = fft_omega[filter_list]
 
-plt.axvline((HHG.Ip + 3.17 * HHG.Up) / HHG.omega, ls='--', c='gray', alpha=0.3)
-plt.plot(fft_omega / HHG.omega, fft_omega**2 * np.abs(fft_res)**2)
-plt.xlabel(r'Harmonic order $\omega/\omega_L$')
-plt.ylabel(r'Yield (arb. units)')
-#plt.xlim(0,1.19)
-plt.yscale('log')
-plt.minorticks_on()
-plt.show()
+    plt.axvline((HHG.Ip + 3.17 * HHG.Up) / HHG.omega, ls='--', c='gray', alpha=0.3)
+    plt.plot(fft_omega / HHG.omega, fft_omega**2 * np.abs(fft_res)**2)
+    plt.xlabel(r'Harmonic order $\omega/\omega_L$')
+    plt.ylabel(r'Yield (arb. units)')
+    #plt.xlim(0,1.19)
+    plt.yscale('log')
+    plt.minorticks_on()
+    plt.show()
 
-# %%
+    # %%
 
-dip_times, dip = HHG.get_dipole()
-plt.plot(dip_times, dip)
-plt.show()
+    dip_times, dip = HHG.get_dipole()
+    plt.plot(dip_times, dip)
+    plt.show()
 
-# %%
-plt.plot(dip_times, np.real(dip))
+    # %%
+    plt.plot(dip_times, np.real(dip))
 
-d_acc = np.gradient(np.gradient(dip, dip_times), dip_times)
-plt.plot(dip_times, d_acc)
+    d_acc = np.gradient(np.gradient(dip, dip_times), dip_times)
+    plt.plot(dip_times, d_acc)
 
-plt.show()
-# %%
+    plt.show()
+    # %%
 
-G, ts, ws = HHG.get_spectrogram(2*np.pi, 50, 40, 100, times=dip_times, dip=dip)
-# %%
-M = np.abs(G)**2
-M_max = np.max(M)
-vmin, vmax = M_max*1e-6, M_max
-M[M < vmin] = vmin
+    G, ts, ws = HHG.get_spectrogram(2*np.pi, 50, 40, 100, times=dip_times, dip=dip)
+    # %%
+    M = np.abs(G)**2
+    M_max = np.max(M)
+    vmin, vmax = M_max*1e-6, M_max
+    M[M < vmin] = vmin
 
-plt.imshow(np.flip(M.T, 0), extent=(ts[0], ts[-1], ws[0]/HHG.omega, ws[-1]/HHG.omega),
-           aspect='auto', norm=LogNorm(vmin=vmin, vmax=vmax), interpolation='bicubic',
-           cmap='Spectral_r')
-plt.colorbar()
+    plt.imshow(np.flip(M.T, 0), extent=(ts[0], ts[-1], ws[0]/self.omega, ws[-1]/self.omega),
+               aspect='auto', norm=LogNorm(vmin=vmin, vmax=vmax), interpolation='bicubic',
+               cmap='Spectral_r')
+    plt.colorbar()
 
-plt.axhline((HHG.Ip + 3.17*HHG.Up)/HHG.omega, ls='--', color='white')
-plt.xlabel('Time (a.u.)')
-plt.ylabel('Harmonic order')
-#plt.xlim(100, 300)
+    plt.axhline((self.Ip + 3.17*self.Up)/self.omega, ls='--', color='white')
+    plt.xlabel('Time (a.u.)')
+    plt.ylabel('Harmonic order')
+    #plt.xlim(100, 300)
