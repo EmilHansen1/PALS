@@ -25,6 +25,9 @@ class HighHarmonicGeneration:
 
         self.SPA_time_integral = settings_dict['SPA_time_integral']
 
+        self.t_recomb = []  # List if recombination times
+        self.dipole = []    # List of dipole values at the recombination times
+
     def A_field_sin2(self, t):
         """
         Sin^2 field. One possible choice of 'build in' pulse forms. Uses the field parameters of the class.
@@ -246,48 +249,31 @@ class HighHarmonicGeneration:
         # Outer operation: Perfrom FFT on recomb. time integral.
         # For each datapoint in FFT: Calcualte the ionization integral (trapz is perhaps good enough?)
         # For each datapoint in inner integral: Determine k saddle points + prefactors + action
-        t_recomb_list = np.linspace(0, 1*self.period, 50000)
-        print(t_recomb_list[1] - t_recomb_list[0])
-        fft_list = []
 
         if not np.any(self.guess_saddle_points):
             print('Everybody panic!')
 
-        guess_times = self.guess_saddle_points
-        for t_re in t_recomb_list:
-            t_ion_saddle = self.find_saddle_times(guess_times, t_re)
-            guess_times = t_ion_saddle
-            res = 0
-            for t_ion in t_ion_saddle:
-                res += self.integrand_HHG(t_ion, t_re)
-            fft_list.append(res)
-
-        fft_list = np.array(fft_list)
-        fft_list = fft_list + np.conj(fft_list)
+        if self.dipole is []:
+            print('Calculate dipole first!')
 
         print('Now calculating the spectrum!')
         # Perform the FFT
-        #fft_res, fft_omega = self.perform_FFT(t_recomb_list, fft_list)
-        #return fft_res, fft_omega
-
-        np.save('fft_list', fft_list)
-        # Test with trapz
-        res_list, omega_list = self.fourier_trapz(t_recomb_list, fft_list)
+        res_list, omega_list = self.fourier_trapz(self.t_recomb, self.dipole)
         return res_list, omega_list
 
     def get_dipole(self):
         # Outer operation: Perfrom FFT on recomb. time integral.
         # For each datapoint in FFT: Calcualte the ionization integral (trapz is perhaps good enough?)
         # For each datapoint in inner integral: Determine k saddle points + prefactors + action
-        t_recomb_list = np.linspace(0, 1 * self.period, 50000)
-        print(t_recomb_list[1] - t_recomb_list[0])
+        self.t_recomb = np.linspace(0, 1 * self.period, 50000)
+
         dipole_list = []
 
         if not np.any(self.guess_saddle_points):
-            print('Everybody panic!')
+            print('Make saddle point guesses before calculating the dipole!')
 
         guess_times = self.guess_saddle_points
-        for t_re in t_recomb_list:
+        for t_re in self.t_recomb:
             t_ion_saddle = self.find_saddle_times(guess_times, t_re)
             guess_times = t_ion_saddle
             res = 0
@@ -297,11 +283,14 @@ class HighHarmonicGeneration:
 
         dipole_list = np.array(dipole_list)
         dipole_list = dipole_list + np.conj(dipole_list)
-        return t_recomb_list, dipole_list
+
+        self.dipole = dipole_list
+
+        return self.t_recomb, dipole_list
 
 
 
-    def get_spectrogram(self, width, N_every, max_harmonic_order, N_omega, times=None, dip=None):
+    def get_spectrogram(self, width, N_every, max_harmonic_order, N_omega):
         """
         Performs a time-frequency analysis
         :param width: the width of the Gaussian window function - typically in the range of a couple of pi
@@ -312,11 +301,12 @@ class HighHarmonicGeneration:
         """
 
         # Get dipole acceleration
-        if times is None and dip is None:
+        if self.t_recomb is [] and self.dipole is []:
             rec_times, dipole = self.get_dipole()
         else:
-            rec_times = times
-            dipole = dip
+            rec_times = self.t_recomb
+            dipole = self.dipole
+
         dipole_acceleration = np.gradient(np.gradient(dipole, rec_times), rec_times) 
 
         # We employ a Gaussian window
@@ -357,9 +347,12 @@ settings_dict = {
 
 if __name__ == '__main__':
     HHG = HighHarmonicGeneration(settings_dict)
-    #HHG.get_saddle_guess([0, HHG.period], [0, 80], 400, 400)
+    HHG.get_saddle_guess([0, HHG.period], [0, 80], 400, 400)
     #np.save('test_guess', HHG.guess_saddle_points)
-    HHG.guess_saddle_points = np.load('test_guess.npy')
+    print('I\'m here!')
+    #HHG.guess_saddle_points = np.load('test_guess.npy')
+
+    HHG.get_dipole()
 
     print('Cutoff: ', HHG.Ip + 3.17*HHG.Up)
 
@@ -377,34 +370,18 @@ if __name__ == '__main__':
     plt.minorticks_on()
     plt.show()
 
-    # %%
-
-    dip_times, dip = HHG.get_dipole()
-    plt.plot(dip_times, dip)
-    plt.show()
-
-    # %%
-    plt.plot(dip_times, np.real(dip))
-
-    d_acc = np.gradient(np.gradient(dip, dip_times), dip_times)
-    plt.plot(dip_times, d_acc)
-
-    plt.show()
-    # %%
-
-    G, ts, ws = HHG.get_spectrogram(2*np.pi, 50, 40, 100, times=dip_times, dip=dip)
-    # %%
+    G, ts, ws = HHG.get_spectrogram(2*np.pi, 50, 40, 100)
     M = np.abs(G)**2
     M_max = np.max(M)
     vmin, vmax = M_max*1e-6, M_max
     M[M < vmin] = vmin
 
-    plt.imshow(np.flip(M.T, 0), extent=(ts[0], ts[-1], ws[0]/self.omega, ws[-1]/self.omega),
+    plt.imshow(np.flip(M.T, 0), extent=(ts[0], ts[-1], ws[0]/HHG.omega, ws[-1]/HHG.omega),
                aspect='auto', norm=LogNorm(vmin=vmin, vmax=vmax), interpolation='bicubic',
                cmap='Spectral_r')
     plt.colorbar()
 
-    plt.axhline((self.Ip + 3.17*self.Up)/self.omega, ls='--', color='white')
+    plt.axhline((HHG.Ip + 3.17*HHG.Up)/HHG.omega, ls='--', color='white')
     plt.xlabel('Time (a.u.)')
     plt.ylabel('Harmonic order')
-    #plt.xlim(100, 300)
+    plt.show()
