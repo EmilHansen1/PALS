@@ -567,9 +567,9 @@ class AboveThresholdIonization:
 
         if saddle_times is not None:  # Use the saddle-point approximation
             for ts in saddle_times:
-                # TODO add matrix element right here!
+                mel = self.hydrogen_1s_matrix_element_SPA(p_vec, ts)
                 action_double_derivative = np.dot(-(p_vec + self.A_field(ts)), self.E_field(ts))
-                amplitude += np.sqrt(2*np.pi*1j/action_double_derivative) * np.exp(1j * self.action(ts, p_vec))
+                amplitude += mel * np.sqrt(2*np.pi*1j/action_double_derivative) * np.exp(1j * self.action(ts, p_vec))
             return amplitude
         else:  # Numerical integration of the time integral
             t_end = self.N_cycles * 2*np.pi / self.omega
@@ -717,21 +717,19 @@ class AboveThresholdIonization:
                 saddle_times = self.find_saddle_times(saddle_times, p_vec)
 
                 amplitude = self.calculate_transition_amplitude(p_vec, saddle_times)
-                energy_angle_int_list.append(np.abs(amplitude) ** 2 * pi**2/2)
+                energy_angle_int_list.append(np.abs(amplitude) ** 2 * pi)
             res.append(np.trapz(energy_angle_int_list, phi_list))
         return res, E_list
 
 
-    def asymptotic_matrix_element(self, p_vec, ts):
-        kappa = np.sqrt(2*self.Ip)
-        nu = 1/kappa 
-
-        p_tilde_vec = p_vec + self.A_field(ts)
-        p_tilde = (p_tilde_vec[0]**2 + p_tilde_vec[1]**2 + p_tilde_vec[2]**2)**0.5
-
-        action_double_derivative = np.dot(-(p_vec + self.A_field(ts)), self.E_field(ts))
-        front_fac = gamma(nu/2 + 1)/np.sqrt(np.pi) * kappa**(nu+1) * action_double_derivative**(-nu/2-1) * 1j**(nu/2+1) * 2**(nu/2-0.5) 
-        # TODO continue this function
+    def hydrogen_1s_matrix_element_SPA(self, p_vec, ts): 
+        """
+        SFA ionization matrix element for a hydrogen 1s state, regularized in the saddle points.
+        """
+        p_tilde = p_vec + self.A_field(ts)
+        E_saddle = self.E_field(ts)
+        action_double_derivative = - np.dot(p_tilde, self.E_field(ts))
+        return action_double_derivative**(-3/2) * (E_saddle[0]*p_tilde[0] + E_saddle[1]*p_tilde[1])
 
 
     # Functions for the GTO bound state matrix element, using Hermite polynomials
@@ -773,10 +771,10 @@ if __name__ == "__main__":
     settings_dict = {
     'Ip': 0.5,              # Ionization potential (a.u.)
     'Wavelength': 800,      # (nm)
-    'Intensity': 2e14,      # (W/cm^2)
+    'Intensity': 1e14,      # (W/cm^2)
     'cep': np.pi/2,         # Carrier envelope phase
     'N_cycles': 2,          # Nr of cycles
-    'built_in_field': 'bicircular',   # Build in field type to use. If using other field methods leave as a empty string ''.
+    'built_in_field': 'linear',   # Build in field type to use. If using other field methods leave as a empty string ''.
     'px_start': -1.5, 'px_end': 1.5,  # Momentum bounds in x direction (a.u.)
     'py_start': -1.5, 'py_end': 1.5,    # Momentum bounds in y direction (a.u.)
     'pz': 0.0,               # Momentum in z direction (a.u.)
